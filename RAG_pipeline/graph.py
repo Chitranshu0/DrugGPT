@@ -5,22 +5,8 @@ from state import MedicalState
 from rag import rag_tool
 
 
-# -----------------------------
-# Checkpointer
-# -----------------------------
-
-memory = InMemorySaver()
-
-
-# -----------------------------
-# Nodes
-# -----------------------------
-
 def rag_node(state: MedicalState):
-
-    result = rag_tool(
-        state["question"]
-    )
+    result = rag_tool(state["question"])
 
     return {
         "context": result["context"],
@@ -28,55 +14,15 @@ def rag_node(state: MedicalState):
     }
 
 
-# -----------------------------
-# Graph Builder
-# -----------------------------
+checkpointer = InMemorySaver()
 
 builder = StateGraph(MedicalState)
 
-builder.add_node(
-    "medical_rag",
-    rag_node
-)
+builder.add_node("medical_rag", rag_node)
 
-builder.add_edge(
-    START,
-    "medical_rag"
-)
-
-builder.add_edge(
-    "medical_rag",
-    END
-)
-
-
-# -----------------------------
-# Compile Graph
-# -----------------------------
+builder.add_edge(START, "medical_rag")
+builder.add_edge("medical_rag", END)
 
 graph = builder.compile(
-    checkpointer=memory
+    checkpointer=checkpointer
 )
-
-
-# -----------------------------
-# Local Test
-# -----------------------------
-
-if __name__ == "__main__":
-
-    config = {
-        "configurable": {
-            "thread_id": "test_user"
-        }
-    }
-
-    result = graph.invoke(
-        {
-            "question": "What is AIDS?"
-        },
-        config=config
-    )
-
-    print("\nAnswer:")
-    print(result["answer"])
