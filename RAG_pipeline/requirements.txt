@@ -1,0 +1,9 @@
+pip install langchain
+pip install langchain-community
+pip install langchain-pinecone
+pip install sentence-transformers
+pip install pymupdf
+pip install pinecone
+pip install python-dotenv
+pip install langgraph-checkpoint-sqlite
+pip install psycopg[binary]
