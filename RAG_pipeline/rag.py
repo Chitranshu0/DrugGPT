@@ -1,4 +1,3 @@
-import os
 from dotenv import load_dotenv
 
 from retriever import retrieve_context # type: ignore
@@ -9,7 +8,7 @@ load_dotenv()
 
 model = ChatGroq(
     model="llama-3.1-8b-instant",
-    temperature=0.2
+    temperature=0.2, max_tokens=600
 )
 
 prompt = ChatPromptTemplate.from_template("""
