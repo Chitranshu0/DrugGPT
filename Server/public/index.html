@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DrugGPT</title>
+    <!-- Thanks to Flaticon for free icons -->
+    <link rel="shortcut icon" href="./static/res/drugGPT_logo.png" type="image/x-icon">
+    <link rel="stylesheet" href="./static/css/style.css">
+    <script type="module" src="./static/js/main.js" defer></script>
+</head>
+<body>
+    <div class="app-shell">
+        <div class="brand-wrapper">
+            <div class="brand">
+                <img class="brand-logo" src="./static/res/drugGPT_logo.png" alt="logo">
+                <h1 class="brand-title" >DrugGPT</h1>
+            </div>
+        </div>
+
+        <div class="intro">
+            <p class="intro-subtitle">
+                Get your drug related queries answerd
+            </p>
+        </div>
+
+        <div id="chat-content" class="chat-container"></div>
+
+        <div id="chat-input" class="composer">
+            <div class="composer-row">
+                <input id="query-input" class="composer-input" type="text" />
+                <button id="query-btn" class="composer-button" >Send</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
