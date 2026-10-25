@@ -43,7 +43,9 @@ This project is also a playground for learning:
 * FastAPI backend
 * Streamlit frontend
 * LangSmith tracing
-* Conversation memory
+* SQLite conversation persistence
+* Multiple chat threads with resume
+* Message history across restarts
 
 ---
 
@@ -66,7 +68,8 @@ This project is also a playground for learning:
 
 ### Database
 
-* Pinecone Vector Database
+* Pinecone Vector Database (medical books)
+* SQLite (conversation state and metadata)
 
 ### Observability
 
@@ -90,20 +93,26 @@ DrugGPT/
 │   │   ├── schemas.py           # Request/response models
 │   │   └── routes/
 │   │       ├── chat.py          # POST /chat
+│   │       ├── threads.py       # Chat list, history, rename, delete
 │   │       └── health.py        # GET /health, /healthz
 │   ├── core/
 │   │   ├── config.py            # All environment settings
 │   │   └── embeddings.py        # Shared HuggingFace embedding model
+│   ├── memory/
+│   │   ├── db.py                # SQLite setup and schema
+│   │   └── conversations.py     # Thread metadata CRUD
 │   ├── rag/
 │   │   ├── state.py             # State shared between graph nodes
 │   │   ├── retrieval.py         # Search Pinecone
-│   │   ├── generation.py        # Context + LLM answer
+│   │   ├── generation.py        # Context + history + LLM answer
 │   │   └── graph.py             # LangGraph workflow
 │   └── ingestion/
 │       └── vector_db.py         # PDF -> Pinecone
 │
 ├── frontend/
 │   └── streamlit_app.py         # Streamlit chat UI
+│
+├── data/                        # SQLite files (created at runtime, gitignored)
 │
 ├── scripts/
 │   ├── ingest.py                # Run the PDF -> Pinecone ingestion
@@ -125,17 +134,14 @@ DrugGPT/
 Streamlit UI
     |
     v
-FastAPI /chat  (backend/api/routes/chat.py)
+FastAPI /threads and /chat  (backend/api/routes/)
     |
     v
 LangGraph workflow  (backend/rag/graph.py)
-    |
-    v
-RAG step  (backend/rag/generation.py)
-    |------------------|
-    v                  v
-Pinecone search    Groq LLM
-(backend/rag/retrieval.py)
+    |-----------------------------|
+    v                             v
+RAG step                    SQLite checkpoint
+(Pinecone + Groq)          (data/checkpoints.sqlite)
 ```
 
 ---
@@ -214,8 +220,9 @@ streamlit run frontend/streamlit_app.py
 ### Phase 2
 
 * Streaming Responses
-* SQLite/Postgres Memory
-* Resume Conversations
+* Human-in-the-loop approvals
+* Long-term memory
+* Conversation summarization
 
 ### Phase 3
 

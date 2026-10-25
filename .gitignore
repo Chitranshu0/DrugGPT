@@ -1,6 +1,9 @@
 .env
 __pycache__/
 *.db
+*.sqlite
+*.sqlite3
+data/
 RAG_pipeline/Medical Books/
 
 # Byte-compiled / optimized / DLL files

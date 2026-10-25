@@ -12,6 +12,8 @@ langchain-groq
 langchain-pinecone
 langchain-text-splitters
 langgraph
+langgraph-checkpoint-sqlite
+aiosqlite
 
 sentence-transformers
 langchain-huggingface

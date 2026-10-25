@@ -8,7 +8,34 @@ A short, plain-English record of changes.
 
 ---
 
-## Backend split + `/health` (latest)
+## SQLite persistence + multiple chats (latest)
+
+- Conversations now survive backend restarts. LangGraph state is stored in
+  `data/checkpoints.sqlite` with `AsyncSqliteSaver`.
+- Conversation titles and timestamps live in `data/app.sqlite`, managed by
+  the new `backend/memory/` package.
+- `MedicalState` now includes a persisted `messages` list. The prompt uses
+  the most recent messages (`MEMORY_WINDOW_MESSAGES`, default 12).
+- New thread endpoints: `GET/POST /threads`,
+  `GET/PATCH/DELETE /threads/{thread_id}`.
+- `POST /chat` is now async, accepts an optional `thread_id`, and returns the
+  generated id in `X-Thread-ID`.
+- The graph is compiled once in the FastAPI lifespan instead of at import
+  time. `InMemorySaver` has been removed.
+- The Streamlit UI has a multi-chat sidebar with new chat, open, rename, and
+  delete actions. History is reloaded from the backend, so a browser refresh
+  no longer loses it.
+- New settings: `DATA_DIR`, `SQLITE_CHECKPOINT_DB`, `SQLITE_APP_DB`,
+  `SQLITE_BUSY_TIMEOUT_MS`, `MEMORY_WINDOW_MESSAGES`, and
+  `THREAD_TITLE_MAX_LEN`.
+- Docs updated across architecture, backend, API, RAG, setup, and development.
+
+The checkpointer is short-term memory. HITL interrupts and `AsyncSqliteStore`
+long-term memory build on this foundation in later phases.
+
+---
+
+## Backend split + `/health`
 
 - Backend is now grouped by layer: `api/`, `core/`, `rag/`, `ingestion/`.
 - New health endpoint `GET /health` (plus a `/healthz` alias). This fixes

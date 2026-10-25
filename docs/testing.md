@@ -63,10 +63,30 @@ curl -X POST http://127.0.0.1:8000/chat ^
 
 Expected: `200` and a grounded answer.
 
+## 7. Persistence check
+
+Create a chat, list it, then restart the backend:
+
+```bash
+curl http://127.0.0.1:8000/threads
+
+curl http://127.0.0.1:8000/threads/test-1
+```
+
+Expected: after restarting uvicorn, `test-1` is still listed and its messages
+are still returned. The SQLite files are in `data/`.
+
+Delete it when finished:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/threads/test-1
+```
+
 ## What is not covered yet
 
 - Automated unit tests (`pytest`)
 - Mocked Pinecone / LLM tests
 - Frontend tests
+- Automated SQLite persistence and restart tests
 
 These are good beginner-friendly contributions.

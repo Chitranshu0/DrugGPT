@@ -4,7 +4,7 @@ Both ingestion (vector_db.py) and retrieval (retrieval.py) use the same
 embedding model. Keeping it here avoids creating it twice.
 """
 
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from backend.core.config import EMBEDDING_MODEL_NAME
 
