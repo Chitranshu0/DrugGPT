@@ -51,17 +51,28 @@ Expected: one short sentence from the model.
 python -m test.vector_db_test
 ```
 
-Expected: a block of medical text from the books.
+Expected: the index schema, 4,223 documents, three medical answers with book
+titles and page numbers, and four passing medical-scope checks.
 
 ## 6. Full chat check
 
 ```bash
 curl -X POST http://127.0.0.1:8000/chat ^
   -H "Content-Type: application/json" ^
-  -d "{\"message\":\"What is AIDS?\",\"thread_id\":\"test-1\"}"
+  -d "{\"message\":\"What is the first-line treatment for hypertension?\",\"thread_id\":\"test-1\"}"
 ```
 
-Expected: `200` and a grounded answer.
+Expected: `200` and a grounded answer with citations.
+
+Try a non-medical message too:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat ^
+  -H "Content-Type: application/json" ^
+  -d "{\"message\":\"Write a Python function to sort a list.\",\"thread_id\":\"test-2\"}"
+```
+
+Expected: a polite medical-only refusal.
 
 ## 7. Persistence check
 

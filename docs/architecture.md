@@ -6,14 +6,14 @@ The backend is split into four layers, so each part has one clear job.
 | Layer | Folder | Job |
 | --- | --- | --- |
 | HTTP | `backend/api/` | Receive requests, validate input, return responses |
-| Core | `backend/core/` | Settings and the shared embedding model |
+| Core | `backend/core/` | Settings, Pinecone client, text cleanup |
 | Memory | `backend/memory/` | Manage conversation metadata in SQLite |
 | RAG | `backend/rag/` | Search Pinecone, ask the LLM, run the graph |
 | Ingestion | `backend/ingestion/` | Load PDFs and upload chunks to Pinecone |
 
 ## Chat request flow
 
-```
+```text
 Streamlit UI  (frontend/streamlit_app.py)
         |
         |  GET/POST /threads, POST /chat { message, thread_id }
@@ -26,11 +26,12 @@ Compiled LangGraph graph  (app.state.graph)
         v
 rag_tool  (backend/rag/generation.py)
         |
-        +----------------------+
-        |                      |
-        v                      v
-Pinecone search            Groq LLM
-(backend/rag/retrieval.py)
+        +----------------------+----------------------+
+        |                      |                      |
+        v                      v                      v
+Medical scope check      Pinecone hybrid search   Groq LLM
+(backend/rag/scope.py)   (backend/rag/retrieval.py) (grounded answer)
+                         dense + BM25 + RRF + rerank
 
 Every step is checkpointed to
 data/checkpoints.sqlite by AsyncSqliteSaver.
@@ -68,15 +69,17 @@ add long-term memory without changing these files.
 
 ## Ingestion flow
 
-```
+```text
 PDFs (Medical Books/)
-   -> DirectoryLoader
-   -> RecursiveCharacterTextSplitter
-   -> HuggingFace embeddings
-   -> Pinecone index
+   -> PyMuPDF page text
+   -> text cleanup (control chars, bullets, hyphen breaks)
+   -> RecursiveCharacterTextSplitter (1,200 chars / 200 overlap)
+   -> Pinecone documents (server-side llama-text-embed-v2, 1024 dim)
+   -> namespace medical-books in index medicalchatbot
 ```
 
-Run it with `python -m scripts.ingest`. See [setup.md](setup.md).
+Run it with `python -m scripts.ingest`. See
+[vector-db-guide.md](vector-db-guide.md) for the full build guide.
 
 ## Design rules
 

@@ -11,27 +11,60 @@ from backend.core.config import (
     LLM_TEMPERATURE,
     MEMORY_WINDOW_MESSAGES,
 )
-from backend.rag.retrieval import retrieve_context
+from backend.rag.retrieval import format_context, retrieve_documents
+from backend.rag.scope import REFUSAL_ANSWER, is_medical_question
 
-PROMPT = ChatPromptTemplate.from_template(
-    """
-You are a medical information assistant. Answer using the retrieved
-context. If the context does not contain the answer, say so clearly.
+NO_CONTEXT_ANSWER = (
+    "I could not find this in the medical references available to me. "
+    "Please try rephrasing the question or ask about a related medical topic."
+)
 
-Conversation so far:
+SYSTEM_PROMPT = """You are DrugGPT, a medical information assistant.
+
+SCOPE RULES (must always be followed):
+1. Only answer questions about medicine, health, diseases, symptoms, drugs,
+   doses, tests, treatment, nutrition, mental health, or public health.
+2. If the question is not medical, politely refuse using this exact sentence:
+   "I can only help with medical and health-related questions."
+3. If the retrieved context does not contain the answer, say that you could
+   not find it in the provided medical references. Never invent facts,
+   medicine names, doses, or guideline numbers.
+4. Use the retrieved context as the main source of truth. You may explain
+   medical terms, but do not add treatment claims that the context does not
+   support.
+5. Cite the source at the end of a sentence when you use it, for example:
+   (Current Essentials of Medicine, page 214).
+6. Use simple English. Prefer short paragraphs or bullet points.
+7. For urgent symptoms, dosing questions, pregnancy, children, or serious
+   side effects, add a short note telling the user to contact a doctor or
+   emergency service.
+
+If no context is supplied, do not answer from memory. Say that the answer was
+not found in the medical references."""
+
+HUMAN_PROMPT = """Conversation so far:
 {history}
 
-Context:
+Retrieved medical context:
 {context}
 
 Question:
 {question}
 
-Answer:
-"""
+Answer:"""
+
+PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", SYSTEM_PROMPT),
+        ("human", HUMAN_PROMPT),
+    ]
 )
 
-llm = ChatGroq(model=LLM_MODEL, temperature=LLM_TEMPERATURE)
+llm = ChatGroq(
+    model=LLM_MODEL,
+    temperature=LLM_TEMPERATURE,
+    max_tokens=1024,
+)
 
 
 def _message_text(message: BaseMessage) -> str:
@@ -65,11 +98,24 @@ def format_history(messages: Sequence[BaseMessage]) -> str:
 
 
 def rag_tool(question: str, history: str = "(no previous messages)") -> dict:
-    """Retrieve context for the question and generate an answer."""
-    context = retrieve_context(question)
+    """Check the medical scope, retrieve context, and generate an answer."""
+    if not is_medical_question(question):
+        return {
+            "context": "",
+            "answer": REFUSAL_ANSWER,
+            "sources": [],
+        }
 
-    chain = PROMPT | llm
-    response = chain.invoke(
+    chunks = retrieve_documents(question)
+    if not chunks:
+        return {
+            "context": "",
+            "answer": NO_CONTEXT_ANSWER,
+            "sources": [],
+        }
+
+    context = format_context(chunks)
+    response = (PROMPT | llm).invoke(
         {
             "context": context,
             "history": history,
@@ -77,7 +123,25 @@ def rag_tool(question: str, history: str = "(no previous messages)") -> dict:
         }
     )
 
+    sources: list[dict] = []
+    seen_sources: set[tuple[str, int | None]] = set()
+    for chunk in chunks:
+        key = (chunk.title, chunk.page)
+        if key in seen_sources:
+            continue
+        seen_sources.add(key)
+        sources.append(
+            {
+                "title": chunk.title,
+                "source": chunk.source,
+                "page": chunk.page,
+                "score": round(chunk.score, 6),
+                "signals": list(chunk.signals),
+            }
+        )
+
     return {
         "context": context,
-        "answer": response.content,
+        "answer": _message_text(response),
+        "sources": sources,
     }

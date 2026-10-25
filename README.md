@@ -34,11 +34,14 @@ This project is also a playground for learning:
 
 * PDF document ingestion
 * Medical book processing
-* Text chunking
-* Embedding generation
-* Pinecone vector database
-* Semantic search
-* RAG pipeline
+* Text cleaning and chunking
+* Server-side NVIDIA embeddings (Pinecone)
+* Pinecone document index with full-text search
+* Hybrid retrieval (semantic + keyword)
+* Reciprocal Rank Fusion (RRF)
+* Cross-encoder reranking
+* Medical-only scope guard
+* Grounded answers with book/page citations
 * LangGraph workflow
 * FastAPI backend
 * Streamlit frontend
@@ -55,8 +58,9 @@ This project is also a playground for learning:
 
 * LangChain
 * LangGraph
-* Groq (Llama 3.1)
-* Sentence Transformers
+* Groq (`openai/gpt-oss-120b` by default)
+* Pinecone integrated embedding: NVIDIA `llama-text-embed-v2` (1024 dim)
+* Pinecone reranker: `bge-reranker-v2-m3`
 
 ### Backend
 
@@ -97,17 +101,19 @@ DrugGPT/
 │   │       └── health.py        # GET /health, /healthz
 │   ├── core/
 │   │   ├── config.py            # All environment settings
-│   │   └── embeddings.py        # Shared HuggingFace embedding model
+│   │   ├── pinecone_client.py   # Index connection + schema check
+│   │   └── text.py              # PDF text cleanup
 │   ├── memory/
 │   │   ├── db.py                # SQLite setup and schema
 │   │   └── conversations.py     # Thread metadata CRUD
 │   ├── rag/
 │   │   ├── state.py             # State shared between graph nodes
-│   │   ├── retrieval.py         # Search Pinecone
+│   │   ├── scope.py             # Medical-only question classifier
+│   │   ├── retrieval.py         # Hybrid search + RRF + rerank
 │   │   ├── generation.py        # Context + history + LLM answer
 │   │   └── graph.py             # LangGraph workflow
 │   └── ingestion/
-│       └── vector_db.py         # PDF -> Pinecone
+│       └── vector_db.py         # PDF -> Pinecone documents
 │
 ├── frontend/
 │   └── streamlit_app.py         # Streamlit chat UI
@@ -186,13 +192,25 @@ Add your API keys.
 
 ---
 
-## Index the Medical Books (first time only)
+## Index the Medical Books
 
-Put your PDF files in the `Medical Books/` folder, then run:
+Put your PDF files in the folder set by `MEDICAL_BOOKS_DIR` (by default
+`Medical Books/`), then run:
 
 ```bash
-python -m scripts.ingest
+# Check the PDFs and chunk counts without uploading
+python -m scripts.ingest --dry-run
+
+# Build the medical knowledge base
+python -m scripts.ingest --reset
+
+# Verify retrieval and the medical-only guard
+python -m test.vector_db_test
 ```
+
+Pinecone embeds the text with NVIDIA `llama-text-embed-v2` on the server.
+No local model download is needed. See
+[docs/vector-db-guide.md](docs/vector-db-guide.md) for the full visual guide.
 
 ## Run the Backend
 

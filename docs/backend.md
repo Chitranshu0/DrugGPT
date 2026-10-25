@@ -19,7 +19,8 @@ backend/
 ├── core/                    # shared setup
 │   ├── __init__.py
 │   ├── config.py            # all environment settings
-│   └── embeddings.py        # HuggingFace embedding model
+│   ├── pinecone_client.py   # index connection + schema check
+│   └── text.py              # PDF text cleanup
 │
 ├── memory/                  # SQLite persistence
 │   ├── __init__.py
@@ -29,7 +30,8 @@ backend/
 ├── rag/                     # the RAG pipeline
 │   ├── __init__.py
 │   ├── state.py             # MedicalState with messages
-│   ├── retrieval.py         # Pinecone search
+│   ├── scope.py             # medical-only question classifier
+│   ├── retrieval.py         # hybrid search + RRF + rerank
 │   ├── generation.py        # history + context + LLM answer
 │   └── graph.py             # LangGraph workflow
 │
@@ -48,14 +50,16 @@ backend/
 | `backend/api/routes/threads.py` | Lists, creates, loads, renames, and deletes conversations. |
 | `backend/api/routes/health.py` | `GET /health` and `GET /healthz`: simple status checks. |
 | `backend/core/config.py` | Reads `.env` and exposes every setting once. |
-| `backend/core/embeddings.py` | One shared way to create the embedding model. |
+| `backend/core/pinecone_client.py` | Shared Pinecone client, index host, schema validation, stats. |
+| `backend/core/text.py` | Cleans PDF text and formats book titles. |
 | `backend/memory/db.py` | Creates `data/`, opens the app DB, applies the schema. |
 | `backend/memory/conversations.py` | Thread metadata CRUD and automatic titles. |
 | `backend/rag/state.py` | The `MedicalState` dictionary, including persisted messages. |
-| `backend/rag/retrieval.py` | Connects to Pinecone and returns matching text. |
+| `backend/rag/scope.py` | Classifies a question as medical or off-topic. |
+| `backend/rag/retrieval.py` | Hybrid Pinecone search, RRF, reranking, context formatting. |
 | `backend/rag/generation.py` | Builds the prompt (history + context) and calls the Groq LLM. |
 | `backend/rag/graph.py` | Defines the graph and accepts a checkpointer from the app. |
-| `backend/ingestion/vector_db.py` | Loads PDFs, splits them, uploads to Pinecone. |
+| `backend/ingestion/vector_db.py` | Loads PDFs, splits them, uploads documents to Pinecone. |
 
 ## Import rules
 
