@@ -83,20 +83,66 @@ This project is also a playground for learning:
 ```bash
 DrugGPT/
 │
-├── RAG_pipeline/
-│   ├── graph.py
-│   ├── rag.py
-│   ├── retriever.py
-│   ├── vector_db.py
-│   ├── state.py
-│   ├── main.py
-│   ├── frontend.py
-│   └── requirements.txt
+├── backend/                     # FastAPI app + RAG pipeline
+│   ├── __init__.py
+│   ├── main.py                  # Creates the app and includes routers
+│   ├── api/
+│   │   ├── schemas.py           # Request/response models
+│   │   └── routes/
+│   │       ├── chat.py          # POST /chat
+│   │       └── health.py        # GET /health, /healthz
+│   ├── core/
+│   │   ├── config.py            # All environment settings
+│   │   └── embeddings.py        # Shared HuggingFace embedding model
+│   ├── rag/
+│   │   ├── state.py             # State shared between graph nodes
+│   │   ├── retrieval.py         # Search Pinecone
+│   │   ├── generation.py        # Context + LLM answer
+│   │   └── graph.py             # LangGraph workflow
+│   └── ingestion/
+│       └── vector_db.py         # PDF -> Pinecone
 │
+├── frontend/
+│   └── streamlit_app.py         # Streamlit chat UI
+│
+├── scripts/
+│   ├── ingest.py                # Run the PDF -> Pinecone ingestion
+│   └── smoke_test_llm.py        # Quick LLM connection check
+│
+├── test/
+│   └── vector_db_test.py        # Quick Pinecone retrieval check
+│
+├── docs/                        # Project docs (start at docs/README.md)
+├── requirements.txt
 ├── .env.example
 ├── README.md
 └── .gitignore
 ```
+
+### How the pieces fit together
+
+```
+Streamlit UI
+    |
+    v
+FastAPI /chat  (backend/api/routes/chat.py)
+    |
+    v
+LangGraph workflow  (backend/rag/graph.py)
+    |
+    v
+RAG step  (backend/rag/generation.py)
+    |------------------|
+    v                  v
+Pinecone search    Groq LLM
+(backend/rag/retrieval.py)
+```
+
+---
+
+## Documentation
+
+Start at [`docs/README.md`](docs/README.md).
 
 ---
 
@@ -121,7 +167,7 @@ conda activate ai
 Install dependencies:
 
 ```bash
-pip install -r RAG_pipeline/requirements.txt
+pip install -r requirements.txt
 ```
 
 Create your `.env` file:
@@ -134,20 +180,24 @@ Add your API keys.
 
 ---
 
+## Index the Medical Books (first time only)
+
+Put your PDF files in the `Medical Books/` folder, then run:
+
+```bash
+python -m scripts.ingest
+```
+
 ## Run the Backend
 
 ```bash
-cd RAG_pipeline
-
-python -m uvicorn main:app --reload
+uvicorn backend.main:app --reload
 ```
-
----
 
 ## Run the Frontend
 
 ```bash
-streamlit run frontend.py
+streamlit run frontend/streamlit_app.py
 ```
 
 ---
