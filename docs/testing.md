@@ -51,22 +51,67 @@ Expected: one short sentence from the model.
 python -m test.vector_db_test
 ```
 
+<<<<<<< HEAD
 Expected: a block of medical text from the books.
+=======
+Expected: the index schema, 4,223 documents, three medical answers with book
+titles and page numbers, and four passing medical-scope checks.
+>>>>>>> fix/RAG
 
 ## 6. Full chat check
 
 ```bash
 curl -X POST http://127.0.0.1:8000/chat ^
   -H "Content-Type: application/json" ^
+<<<<<<< HEAD
   -d "{\"message\":\"What is AIDS?\",\"thread_id\":\"test-1\"}"
 ```
 
 Expected: `200` and a grounded answer.
+=======
+  -d "{\"message\":\"What is the first-line treatment for hypertension?\",\"thread_id\":\"test-1\"}"
+```
+
+Expected: `200` and a grounded answer with citations.
+
+Try a non-medical message too:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat ^
+  -H "Content-Type: application/json" ^
+  -d "{\"message\":\"Write a Python function to sort a list.\",\"thread_id\":\"test-2\"}"
+```
+
+Expected: a polite medical-only refusal.
+
+## 7. Persistence check
+
+Create a chat, list it, then restart the backend:
+
+```bash
+curl http://127.0.0.1:8000/threads
+
+curl http://127.0.0.1:8000/threads/test-1
+```
+
+Expected: after restarting uvicorn, `test-1` is still listed and its messages
+are still returned. The SQLite files are in `data/`.
+
+Delete it when finished:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/threads/test-1
+```
+>>>>>>> fix/RAG
 
 ## What is not covered yet
 
 - Automated unit tests (`pytest`)
 - Mocked Pinecone / LLM tests
 - Frontend tests
+<<<<<<< HEAD
+=======
+- Automated SQLite persistence and restart tests
+>>>>>>> fix/RAG
 
 These are good beginner-friendly contributions.

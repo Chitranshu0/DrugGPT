@@ -7,6 +7,7 @@ pydantic
 
 langchain
 langchain-core
+<<<<<<< HEAD
 langchain-community
 langchain-groq
 langchain-pinecone
@@ -17,3 +18,17 @@ sentence-transformers
 langchain-huggingface
 pymupdf
 pinecone
+=======
+langchain-groq
+langchain-openrouter
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-sqlite
+aiosqlite
+
+# Pinecone document index with server-side NVIDIA llama-text-embed-v2.
+# The Documents API (2026-07) requires pinecone 10.1 or newer.
+pinecone>=10.1.0,<11
+
+pymupdf
+>>>>>>> fix/RAG

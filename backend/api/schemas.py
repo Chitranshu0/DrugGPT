@@ -1,13 +1,53 @@
 """Request and response models for the API."""
 
+<<<<<<< HEAD
 from pydantic import BaseModel
+=======
+from typing import Any
+
+from pydantic import BaseModel, Field
+>>>>>>> fix/RAG
 
 
 class ChatRequest(BaseModel):
     """A user question plus the conversation it belongs to."""
 
     message: str
+<<<<<<< HEAD
     thread_id: str
+=======
+    thread_id: str | None = None
+
+
+class MessageOut(BaseModel):
+    """One persisted chat message."""
+
+    role: str
+    content: str
+
+
+class ThreadSummary(BaseModel):
+    """Conversation metadata shown in the chat sidebar."""
+
+    thread_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+class ThreadDetail(ThreadSummary):
+    """A conversation plus its persisted messages."""
+
+    messages: list[MessageOut]
+    pending_interrupt: Any | None = None
+
+
+class ThreadRenameRequest(BaseModel):
+    """New title for an existing conversation."""
+
+    title: str = Field(min_length=1, max_length=200)
+>>>>>>> fix/RAG
 
 
 class HealthResponse(BaseModel):

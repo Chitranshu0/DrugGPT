@@ -34,16 +34,21 @@ This project is also a playground for learning:
 
 * PDF document ingestion
 * Medical book processing
-* Text chunking
-* Embedding generation
-* Pinecone vector database
-* Semantic search
-* RAG pipeline
+* Text cleaning and chunking
+* Server-side NVIDIA embeddings (Pinecone)
+* Pinecone document index with full-text search
+* Hybrid retrieval (semantic + keyword)
+* Reciprocal Rank Fusion (RRF)
+* Cross-encoder reranking
+* Medical-only scope guard
+* Grounded answers with book/page citations
 * LangGraph workflow
 * FastAPI backend
 * Streamlit frontend
 * LangSmith tracing
-* Conversation memory
+* SQLite conversation persistence
+* Multiple chat threads with resume
+* Message history across restarts
 
 ---
 
@@ -53,8 +58,9 @@ This project is also a playground for learning:
 
 * LangChain
 * LangGraph
-* Groq (Llama 3.1)
-* Sentence Transformers
+* Groq (`openai/gpt-oss-120b` by default)
+* Pinecone integrated embedding: NVIDIA `llama-text-embed-v2` (1024 dim)
+* Pinecone reranker: `bge-reranker-v2-m3`
 
 ### Backend
 
@@ -66,7 +72,8 @@ This project is also a playground for learning:
 
 ### Database
 
-* Pinecone Vector Database
+* Pinecone Vector Database (medical books)
+* SQLite (conversation state and metadata)
 
 ### Observability
 
@@ -90,6 +97,7 @@ DrugGPT/
 │   │   ├── schemas.py           # Request/response models
 │   │   └── routes/
 │   │       ├── chat.py          # POST /chat
+<<<<<<< HEAD
 │   │       └── health.py        # GET /health, /healthz
 │   ├── core/
 │   │   ├── config.py            # All environment settings
@@ -101,10 +109,34 @@ DrugGPT/
 │   │   └── graph.py             # LangGraph workflow
 │   └── ingestion/
 │       └── vector_db.py         # PDF -> Pinecone
+=======
+│   │       ├── threads.py       # Chat list, history, rename, delete
+│   │       └── health.py        # GET /health, /healthz
+│   ├── core/
+│   │   ├── config.py            # All environment settings
+│   │   ├── pinecone_client.py   # Index connection + schema check
+│   │   └── text.py              # PDF text cleanup
+│   ├── memory/
+│   │   ├── db.py                # SQLite setup and schema
+│   │   └── conversations.py     # Thread metadata CRUD
+│   ├── rag/
+│   │   ├── state.py             # State shared between graph nodes
+│   │   ├── scope.py             # Medical-only question classifier
+│   │   ├── retrieval.py         # Hybrid search + RRF + rerank
+│   │   ├── generation.py        # Context + history + LLM answer
+│   │   └── graph.py             # LangGraph workflow
+│   └── ingestion/
+│       └── vector_db.py         # PDF -> Pinecone documents
+>>>>>>> fix/RAG
 │
 ├── frontend/
 │   └── streamlit_app.py         # Streamlit chat UI
 │
+<<<<<<< HEAD
+=======
+├── data/                        # SQLite files (created at runtime, gitignored)
+│
+>>>>>>> fix/RAG
 ├── scripts/
 │   ├── ingest.py                # Run the PDF -> Pinecone ingestion
 │   └── smoke_test_llm.py        # Quick LLM connection check
@@ -125,6 +157,7 @@ DrugGPT/
 Streamlit UI
     |
     v
+<<<<<<< HEAD
 FastAPI /chat  (backend/api/routes/chat.py)
     |
     v
@@ -136,6 +169,16 @@ RAG step  (backend/rag/generation.py)
     v                  v
 Pinecone search    Groq LLM
 (backend/rag/retrieval.py)
+=======
+FastAPI /threads and /chat  (backend/api/routes/)
+    |
+    v
+LangGraph workflow  (backend/rag/graph.py)
+    |-----------------------------|
+    v                             v
+RAG step                    SQLite checkpoint
+(Pinecone + Groq)          (data/checkpoints.sqlite)
+>>>>>>> fix/RAG
 ```
 
 ---
@@ -180,6 +223,7 @@ Add your API keys.
 
 ---
 
+<<<<<<< HEAD
 ## Index the Medical Books (first time only)
 
 Put your PDF files in the `Medical Books/` folder, then run:
@@ -188,6 +232,28 @@ Put your PDF files in the `Medical Books/` folder, then run:
 python -m scripts.ingest
 ```
 
+=======
+## Index the Medical Books
+
+Put your PDF files in the folder set by `MEDICAL_BOOKS_DIR` (by default
+`Medical Books/`), then run:
+
+```bash
+# Check the PDFs and chunk counts without uploading
+python -m scripts.ingest --dry-run
+
+# Build the medical knowledge base
+python -m scripts.ingest --reset
+
+# Verify retrieval and the medical-only guard
+python -m test.vector_db_test
+```
+
+Pinecone embeds the text with NVIDIA `llama-text-embed-v2` on the server.
+No local model download is needed. See
+[docs/vector-db-guide.md](docs/vector-db-guide.md) for the full visual guide.
+
+>>>>>>> fix/RAG
 ## Run the Backend
 
 ```bash
@@ -214,8 +280,9 @@ streamlit run frontend/streamlit_app.py
 ### Phase 2
 
 * Streaming Responses
-* SQLite/Postgres Memory
-* Resume Conversations
+* Human-in-the-loop approvals
+* Long-term memory
+* Conversation summarization
 
 ### Phase 3
 

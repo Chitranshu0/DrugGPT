@@ -4,6 +4,10 @@ Start here. Each file covers one topic, so you do not have to read everything.
 
 | Document | Read it when you want to... |
 | --- | --- |
+<<<<<<< HEAD
+=======
+| [vector-db-guide.md](vector-db-guide.md) | Build, verify, and tune the medical vector database (infographics) |
+>>>>>>> fix/RAG
 | [architecture.md](architecture.md) | See the big picture and the request flow |
 | [backend.md](backend.md) | Know what every backend file does |
 | [api.md](api.md) | Call the API and check the health endpoint |
