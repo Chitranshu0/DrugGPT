@@ -19,6 +19,11 @@ NO_CONTEXT_ANSWER = (
     "Please try rephrasing the question or ask about a related medical topic."
 )
 
+# UI metadata for the single retrieval tool. The frontend uses these labels
+# to render a Claude-style tool call card.
+TOOL_NAME = "rag_tool"
+TOOL_TITLE = "Searching medical references"
+
 SYSTEM_PROMPT = """You are DrugGPT, a medical information assistant.
 
 SCOPE RULES (must always be followed):

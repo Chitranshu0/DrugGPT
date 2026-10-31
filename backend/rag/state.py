@@ -12,6 +12,7 @@ class MedicalState(TypedDict):
     question: what the user asked.
     context:  the text we retrieved from the medical books.
     answer:   the final answer produced by the LLM.
+    sources:  metadata for each retrieved passage, shown in the UI.
     messages: the full conversation. The add_messages reducer appends new
               messages instead of replacing the existing list, so the
               checkpointer can reload the whole thread.
@@ -20,4 +21,5 @@ class MedicalState(TypedDict):
     question: str
     context: str
     answer: str
+    sources: list[dict]
     messages: Annotated[list[AnyMessage], add_messages]

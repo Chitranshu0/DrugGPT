@@ -40,9 +40,13 @@ def _message_text(message: BaseMessage) -> str:
 
 def _serialize_message(message: BaseMessage) -> MessageOut:
     """Convert a LangChain message into the API shape."""
+    metadata = getattr(message, "additional_kwargs", {}) or {}
+
     return MessageOut(
         role=ROLE_NAMES.get(message.type, message.type),
         content=_message_text(message),
+        sources=metadata.get("sources", []) or [],
+        tool_calls=metadata.get("ui_tool_calls", []) or [],
     )
 
 

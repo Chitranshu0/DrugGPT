@@ -12,11 +12,33 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
+class SourceOut(BaseModel):
+    """One retrieved medical reference shown under an answer."""
+
+    title: str = ""
+    source: str = ""
+    page: int | None = None
+    score: float = 0.0
+    signals: list[str] = Field(default_factory=list)
+
+
+class ToolCallOut(BaseModel):
+    """One tool invocation rendered as a card in the UI."""
+
+    name: str
+    title: str = ""
+    input: dict[str, Any] = Field(default_factory=dict)
+    status: str = "completed"
+    summary: str = ""
+
+
 class MessageOut(BaseModel):
     """One persisted chat message."""
 
     role: str
     content: str
+    sources: list[SourceOut] = Field(default_factory=list)
+    tool_calls: list[ToolCallOut] = Field(default_factory=list)
 
 
 class ThreadSummary(BaseModel):

@@ -109,8 +109,17 @@ checkpoint:
   "updated_at": "2026-10-25T10:05:00+00:00",
   "message_count": 4,
   "messages": [
-    { "role": "user", "content": "What is AIDS?" },
-    { "role": "assistant", "content": "AIDS is ..." }
+    { "role": "user", "content": "What is AIDS?", "sources": [], "tool_calls": [] },
+    {
+      "role": "assistant",
+      "content": "AIDS is ...",
+      "sources": [
+        { "title": "Current Essentials of Medicine", "source": "cem.pdf", "page": 214, "score": 0.42, "signals": ["dense", "text"] }
+      ],
+      "tool_calls": [
+        { "name": "rag_tool", "title": "Searching medical references", "input": { "question": "What is AIDS?" }, "status": "completed", "summary": "Found 1 relevant passage" }
+      ]
+    }
   ],
   "pending_interrupt": null
 }
@@ -147,7 +156,19 @@ Request body:
   the backend generates one and returns it in the `X-Thread-ID` response
   header.
 
-Response: `200` with `text/plain` containing the answer.
+Response: `200` with `application/x-ndjson` — newline-delimited JSON events.
+The UI uses these events to render Claude-style tool cards while the answer
+is generated.
+
+```json
+{"type": "thinking", "label": "Thinking about your question..."}
+{"type": "tool_call", "tool": {"name": "rag_tool", "title": "Searching medical references", "input": {"question": "What is AIDS?"}, "status": "running"}}
+{"type": "tool_result", "tool": {"name": "rag_tool", "title": "Searching medical references", "input": {"question": "What is AIDS?"}, "status": "completed", "summary": "Found 3 relevant passages"}, "sources": [{"title": "Current Essentials of Medicine", "page": 214}]}
+{"type": "answer", "content": "AIDS is ..."}
+{"type": "done"}
+```
+
+On failure the stream emits `{"type": "error", "message": "..."}` and ends.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/chat ^
