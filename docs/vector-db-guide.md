@@ -343,7 +343,7 @@ All settings live in `.env` and are read by `backend/core/config.py`.
 | `404 NOT_FOUND Namespace not found` | Reset on an empty namespace | Fixed: the script treats empty as success |
 | `429 RESOURCE_EXHAUSTED` | Embedding rate limit | The script retries automatically; wait or lower batch size |
 | Search returns nothing | Documents still indexing | Wait up to 1 minute and retry |
-| `dimension mismatch` | Old code or old index | Use `PINECONE_INDEX_NAME=medicalchatbot` and the new retrieval code |
+| `dimension mismatch` | Old code or old index (`medical-rag` = 384-dim vector index) | Set `PINECONE_INDEX_NAME=medicalchatbot` (1024-dim document index) and use the Documents API retrieval code. The error `This index is not served by the documents API` means the index name is wrong. |
 | Wrong book/page in answer | Reranker picked a weak chunk | Raise `RETRIEVAL_TOP_K` or `RETRIEVAL_FETCH_K` |
 | Non-medical question passes | Scope classifier missed it | Check `MEDICAL_SCOPE_GUARD=true`; the main prompt still refuses |
 | Unicode print crash on Windows | PDF bullet characters | Text is cleaned; CLI output uses UTF-8 |

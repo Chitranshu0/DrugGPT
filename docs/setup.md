@@ -50,7 +50,7 @@ Fill in the values:
 | `PINECONE_API_KEY` | Pinecone API key |
 | `PINECONE_INDEX_NAME` | Index name (default `medicalchatbot`) |
 | `PINECONE_INDEX_HOST` | Index host from the Pinecone console |
-| `PINECONE_NAMESPACE` | Namespace for the books (default `medical-books`) |
+| `PINECONE_NAMESPACE` | Namespace for the books (**must be set**; default `medical-books`) |
 | `RETRIEVAL_MODE` | `hybrid` (recommended) or `dense` |
 | `RETRIEVAL_TOP_K` | Chunks sent to the LLM (default 5) |
 | `RETRIEVAL_FETCH_K` | Candidates before reranking (default 20) |
@@ -153,7 +153,7 @@ python -m test.vector_db_test
 | `/health` returns 404 | Restart the server so it loads the latest code |
 | `ModuleNotFoundError: fastapi` | Wrong Python. Activate `ai` first |
 | `PINECONE_API_KEY missing` | Add it to `.env` and restart |
-| `404 Namespace not found` | The namespace is empty; the build script now treats this as success |
+| `404 Namespace not found` | The namespace is empty; set `PINECONE_NAMESPACE=medical-books` in `.env` and restart |
 | `429 RESOURCE_EXHAUSTED` | Pinecone embedding rate limit; the script retries automatically |
 | Empty retrieval | Wait up to one minute after ingestion, then retry |
 | `dimension mismatch` | You are using the old index or old code; use `medicalchatbot` and the Documents API |

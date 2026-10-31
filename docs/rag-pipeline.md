@@ -57,6 +57,37 @@ Each chunk starts with a header such as:
 [Source: Current Essentials of Medicine, page 33]
 ```
 
+### Namespace configuration
+
+The Pinecone namespace tells the server which set of documents to search.
+This is set via the `PINECONE_NAMESPACE` environment variable (default: `medical-books`).
+
+- **Correct**: `PINECONE_NAMESPACE=medical-books` in `.env`
+- **Incorrect**: `PINECONE_NAMESPACE=` (empty) — this causes Pinecone to
+  reject the search with `ValidationError: namespace must be a non-empty string`
+
+The `.env.example` already has the correct value `PINECONE_NAMESPACE=medical-books`.
+If you copy `.env.example` to `.env`, this is set automatically.
+
+```mermaid
+flowchart TD
+    A[User question] --> B{Medical scope check}
+    B -->|Non-medical| C[Refuse immediately]
+    B -->|Medical| D[Retrieve documents]
+    D --> E[Dense embedding search]
+    D --> F[BM25 keyword search]
+    E --> G[RRF fusion]
+    F --> G
+    G --> H[Cross-encoder rerank]
+    H --> I[Top K chunks]
+    I --> J[Generate answer with LLM]
+```
+
+> **Note:** If retrieval fails with "namespace must be a non-empty string",
+> check that `PINECONE_NAMESPACE` in your `.env` is set (e.g. to
+> `medical-books`) and not left empty.
+```
+
 ## Step 4: Generation
 
 File: `backend/rag/generation.py`
