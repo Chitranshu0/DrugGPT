@@ -12,6 +12,7 @@ langchain-openrouter
 langchain-text-splitters
 langgraph
 langgraph-checkpoint-sqlite
+langgraph-checkpoint-postgres
 aiosqlite
 
 # Pinecone document index with server-side NVIDIA llama-text-embed-v2.
@@ -19,3 +20,5 @@ aiosqlite
 pinecone>=10.1.0,<11
 
 pymupdf
+
+supabase

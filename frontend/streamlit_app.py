@@ -22,6 +22,53 @@ import streamlit as st
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 REQUEST_TIMEOUT = 120
 
+
+class AuthExpired(Exception):
+    """Raised when the session cannot be refreshed and the user must log in."""
+
+
+def _auth_headers() -> dict[str, str]:
+    """Return the Authorization header for the current session."""
+    token = st.session_state.get("access_token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _store_session(payload: dict) -> None:
+    """Keep the issued tokens and profile in the Streamlit session."""
+    st.session_state.access_token = payload["access_token"]
+    st.session_state.refresh_token = payload["refresh_token"]
+    st.session_state.user = payload["user"]
+
+
+def _clear_session() -> None:
+    """Forget the signed-in user and every piece of chat state."""
+    st.session_state.access_token = None
+    st.session_state.refresh_token = None
+    st.session_state.user = None
+    st.session_state.thread_id = None
+    st.session_state.messages = []
+    st.session_state.threads = []
+
+
+def _refresh_tokens() -> bool:
+    """Try to rotate the access token using the stored refresh token."""
+    refresh_token = st.session_state.get("refresh_token")
+    if not refresh_token:
+        return False
+
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/auth/refresh",
+            json={"refresh_token": refresh_token},
+            timeout=15,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return False
+
+    _store_session(response.json())
+    return True
+
 st.set_page_config(page_title="DrugGPT", page_icon="💊", layout="wide")
 
 st.markdown(
@@ -74,14 +121,39 @@ st.markdown(
 st.title("💊 DrugGPT")
 
 
-def _request(method: str, path: str, **kwargs) -> requests.Response:
-    """Send a request to the backend and raise on HTTP errors."""
+def _request(
+    method: str,
+    path: str,
+    *,
+    authenticated: bool = True,
+    **kwargs,
+) -> requests.Response:
+    """Send a request to the backend, refreshing the token once on 401."""
+    headers = dict(kwargs.pop("headers", {}) or {})
+    if authenticated:
+        headers.update(_auth_headers())
+
     response = requests.request(
         method,
         f"{API_BASE_URL}{path}",
         timeout=REQUEST_TIMEOUT,
+        headers=headers,
         **kwargs,
     )
+
+    if authenticated and response.status_code == 401:
+        if not _refresh_tokens():
+            _clear_session()
+            raise AuthExpired()
+        headers.update(_auth_headers())
+        response = requests.request(
+            method,
+            f"{API_BASE_URL}{path}",
+            timeout=REQUEST_TIMEOUT,
+            headers=headers,
+            **kwargs,
+        )
+
     response.raise_for_status()
     return response
 
@@ -125,12 +197,28 @@ def stream_chat(
     sources: list[dict] = []
     tools: dict[str, dict] = {}
 
-    with requests.post(
+    response = requests.post(
         f"{API_BASE_URL}/chat",
         json={"message": question, "thread_id": thread_id},
+        headers=_auth_headers(),
         stream=True,
         timeout=(10, REQUEST_TIMEOUT),
-    ) as response:
+    )
+
+    if response.status_code == 401:
+        response.close()
+        if not _refresh_tokens():
+            _clear_session()
+            raise AuthExpired()
+        response = requests.post(
+            f"{API_BASE_URL}/chat",
+            json={"message": question, "thread_id": thread_id},
+            headers=_auth_headers(),
+            stream=True,
+            timeout=(10, REQUEST_TIMEOUT),
+        )
+
+    try:
         response.raise_for_status()
 
         for raw_line in response.iter_lines(decode_unicode=True):
@@ -165,6 +253,8 @@ def stream_chat(
                 answer = event.get("message", "")
 
             on_event(event)
+    finally:
+        response.close()
 
     # A stream that ended before tool_result (or an older backend) should not
     # leave a tool card stuck on "running".
@@ -235,6 +325,9 @@ def render_sources(sources: list[dict]) -> None:
 
 def init_session() -> None:
     """Create the session values we need on the first page load."""
+    st.session_state.setdefault("access_token", None)
+    st.session_state.setdefault("refresh_token", None)
+    st.session_state.setdefault("user", None)
     st.session_state.setdefault("thread_id", None)
     st.session_state.setdefault("messages", [])
     st.session_state.setdefault("threads", [])
@@ -267,9 +360,120 @@ def show_history() -> None:
             render_sources(message.get("sources") or [])
 
 
+def _error_detail(exc: requests.RequestException) -> str:
+    """Pull a readable message out of an HTTP error response."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = None
+        if detail:
+            return str(detail)
+        return f"HTTP {response.status_code}"
+    return str(exc)
+
+
+def render_auth() -> None:
+    """Render the login and signup screen."""
+    st.subheader("Sign in to DrugGPT")
+    st.caption("Your chats are private to your account.")
+
+    login_tab, signup_tab = st.tabs(["Log in", "Sign up"])
+
+    with login_tab:
+        with st.form("login-form"):
+            email = st.text_input("Email", key="login-email")
+            password = st.text_input(
+                "Password",
+                type="password",
+                key="login-password",
+            )
+            submitted = st.form_submit_button("Log in", use_container_width=True)
+
+        if submitted:
+            if not email.strip() or not password:
+                st.warning("Enter your email and password.")
+            else:
+                try:
+                    response = _request(
+                        "POST",
+                        "/auth/login",
+                        authenticated=False,
+                        json={
+                            "email": email.strip(),
+                            "password": password,
+                        },
+                    )
+                except requests.HTTPError as exc:
+                    st.error(f"Could not log in: {_error_detail(exc)}")
+                except requests.RequestException as exc:
+                    st.error(f"Could not log in: {exc}")
+                else:
+                    _store_session(response.json())
+                    st.rerun()
+
+    with signup_tab:
+        with st.form("signup-form"):
+            new_email = st.text_input("Email", key="signup-email")
+            new_password = st.text_input(
+                "Password",
+                type="password",
+                key="signup-password",
+            )
+            confirm = st.text_input(
+                "Confirm password",
+                type="password",
+                key="signup-confirm",
+            )
+            created = st.form_submit_button("Create account", use_container_width=True)
+
+        if created:
+            if not new_email.strip():
+                st.warning("Enter your email address.")
+            elif len(new_password) < 6:
+                st.warning("Use a password with at least 6 characters.")
+            elif new_password != confirm:
+                st.warning("The passwords do not match.")
+            else:
+                try:
+                    response = _request(
+                        "POST",
+                        "/auth/signup",
+                        authenticated=False,
+                        json={
+                            "email": new_email.strip(),
+                            "password": new_password,
+                        },
+                    )
+                except requests.HTTPError as exc:
+                    st.error(f"Could not create the account: {_error_detail(exc)}")
+                except requests.RequestException as exc:
+                    st.error(f"Could not create the account: {exc}")
+                else:
+                    payload = response.json()
+                    if payload.get("requires_confirmation"):
+                        st.info(
+                            "Check your email to confirm the account, then log in."
+                        )
+                    elif payload.get("session"):
+                        _store_session(payload["session"])
+                        st.rerun()
+
+
 def render_sidebar() -> None:
-    """Render the chat list and its controls."""
+    """Render the account controls, chat list, and its actions."""
     with st.sidebar:
+        user = st.session_state.get("user") or {}
+        st.caption(f"Signed in as **{user.get('email', 'unknown')}**")
+        if user.get("is_admin"):
+            st.caption("👑 Admin")
+
+        if st.button("↩ Log out", use_container_width=True):
+            _clear_session()
+            st.rerun()
+
+        st.divider()
         st.subheader("Chats")
 
         if st.button("➕ New chat", use_container_width=True):
@@ -413,14 +617,19 @@ def render_live_response(
 
 def main() -> None:
     init_session()
-    render_sidebar()
-    show_history()
 
-    question = st.chat_input("Ask a medical question...")
-    if not question:
-        return
+    if not st.session_state.get("user"):
+        render_auth()
+        st.stop()
 
     try:
+        render_sidebar()
+        show_history()
+
+        question = st.chat_input("Ask a medical question...")
+        if not question:
+            return
+
         if st.session_state.thread_id is None:
             start_new_chat()
 
@@ -435,6 +644,9 @@ def main() -> None:
         assistant_message = render_live_response(question, thread_id)
         if assistant_message is not None:
             st.session_state.messages.append(assistant_message)
+    except AuthExpired:
+        st.warning("Your session expired. Please log in again.")
+        st.rerun()
     except requests.RequestException as exc:
         st.error(f"Backend request failed: {exc}")
         return

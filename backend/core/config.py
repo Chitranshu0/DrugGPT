@@ -77,6 +77,24 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
 MIN_CHUNK_CHARS = int(os.getenv("MIN_CHUNK_CHARS", "80"))
 UPSERT_BATCH_SIZE = int(os.getenv("UPSERT_BATCH_SIZE", "90"))
 
+# --- Authentication (Supabase) ---
+# The publishable key is safe to use for sign-in/sign-up. The secret key is
+# server-only: it is used for admin operations such as bootstrapping the first
+# user or auto-confirming a signup. Never send it to the frontend.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
+
+# When false, protected routes accept a single local development user.
+# Keep this true outside local development.
+AUTH_REQUIRED = _get_bool("AUTH_REQUIRED", True)
+
+# Optional first-run admin. When both values are set (and the secret key is
+# available), startup creates/confirms this user and assigns existing chats
+# that have no owner to it.
+BOOTSTRAP_ADMIN_EMAIL = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip()
+BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
 # --- Persistence (SQLite) ---
 DATA_DIR = _resolve_path(os.getenv("DATA_DIR", "data"))
 SQLITE_CHECKPOINT_DB = _resolve_path(

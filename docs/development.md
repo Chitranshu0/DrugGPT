@@ -37,6 +37,27 @@ app.include_router(stats_router)
 
 4. Add request/response models to `backend/api/schemas.py` if needed.
 
+## Protect a route
+
+Import the shared dependency and scope every query to the user:
+
+```python
+from fastapi import Depends
+
+from backend.api.dependencies import get_current_user
+from backend.api.schemas import AuthUser
+
+
+@router.get("/stats")
+async def stats(user: AuthUser = Depends(get_current_user)):
+    ...
+```
+
+Never read the `Authorization` header or decode a JWT by hand. The dependency
+verifies the token with Supabase and returns the local account. Return `404`
+(not `403`) when a resource belongs to another user, so its existence is not
+leaked.
+
 ## Add a graph step
 
 1. Write a node in `backend/rag/graph.py` (or a new module in `backend/rag/`).
@@ -51,13 +72,14 @@ lifespan. Do not create a module-level compiled graph.
 
 ## Add a thread field
 
-1. Add the column in `backend/memory/db.py`.
-2. Update the CRUD functions in `backend/memory/conversations.py`.
+1. Add the column in `backend/memory/db.py`, including a guarded migration.
+2. Update the CRUD functions in `backend/memory/conversations.py`. Every
+   function takes `user_id` and filters by it.
 3. Add or extend the models in `backend/api/schemas.py`.
 4. Update `backend/api/routes/threads.py` and the Streamlit sidebar.
 
-Thread metadata lives in `data/app.sqlite`. Message history lives in the
-LangGraph checkpoint, not in the metadata table.
+Thread metadata lives in `data/app.sqlite` and is scoped per `user_id`.
+Message history lives in the LangGraph checkpoint, not in the metadata table.
 
 ## Add a setting
 
@@ -76,7 +98,7 @@ MY_SETTING = os.getenv("MY_SETTING", "default")
 | --- | --- |
 | `backend/api/` | Routes and schemas |
 | `backend/core/` | Config and shared clients |
-| `backend/memory/` | SQLite setup and conversation metadata |
+| `backend/memory/` | SQLite setup, users, and conversation metadata |
 | `backend/rag/` | Retrieval, generation, graph |
 | `backend/ingestion/` | Offline indexing |
 | `scripts/` | One-off commands |
@@ -89,12 +111,13 @@ MY_SETTING = os.getenv("MY_SETTING", "default")
 python -m compileall backend scripts frontend test
 python -m scripts.smoke_test_llm
 python -m test.vector_db_test
+python -m test.auth_isolation_test
 ```
 
-Also check the thread API against a running backend:
+Also check the thread API against a running backend (this needs a token):
 
 ```bash
-curl http://127.0.0.1:8000/threads
+curl -H "Authorization: Bearer %ACCESS_TOKEN%" http://127.0.0.1:8000/threads
 ```
 
 Restart the backend and confirm the list and message history are still

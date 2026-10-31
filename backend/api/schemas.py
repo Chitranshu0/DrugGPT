@@ -64,6 +64,53 @@ class ThreadRenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class AuthUser(BaseModel):
+    """The signed-in account, as exposed to clients."""
+
+    id: str
+    email: str = ""
+    is_admin: bool = False
+
+
+class AuthSignupRequest(BaseModel):
+    """Credentials for creating a new account."""
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=6, max_length=200)
+
+
+class AuthLoginRequest(BaseModel):
+    """Credentials for an existing account."""
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AuthRefreshRequest(BaseModel):
+    """Refresh token from a previous sign-in."""
+
+    refresh_token: str = Field(min_length=1)
+
+
+class AuthSession(BaseModel):
+    """Tokens plus the user profile returned by sign-in and refresh."""
+
+    access_token: str
+    refresh_token: str
+    expires_at: int | None = None
+    expires_in: int | None = None
+    token_type: str = "bearer"
+    user: AuthUser
+
+
+class AuthSignupResponse(BaseModel):
+    """Either a session, or a request to confirm the email address."""
+
+    requires_confirmation: bool = False
+    user: AuthUser
+    session: AuthSession | None = None
+
+
 class HealthResponse(BaseModel):
     """Small status payload used by health checks."""
 

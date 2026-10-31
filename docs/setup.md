@@ -64,9 +64,44 @@ Fill in the values:
 | `SQLITE_APP_DB` | Conversation metadata database |
 | `SQLITE_BUSY_TIMEOUT_MS` | How long SQLite waits for a lock |
 | `MEMORY_WINDOW_MESSAGES` | Recent messages sent to the LLM |
+| `SUPABASE_URL` | Your Supabase project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | Publishable key used for sign-in and token checks |
+| `SUPABASE_SECRET_KEY` | Secret key for admin work (server only) |
+| `AUTH_REQUIRED` | Set `false` only for local development without Supabase |
+| `BOOTSTRAP_ADMIN_EMAIL` | Optional first admin account, created at startup |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Password for the bootstrap admin |
 
 The SQLite files are created automatically on first startup. You do not need
 to create the `data/` folder or run any migration command.
+
+## 3b. Authentication (Supabase)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Copy the project URL, the **publishable** key, and the **secret** key from
+   Project Settings → API Keys into `.env`.
+3. Keep the secret key on the backend only. It is used to auto-confirm
+   signups and to create the bootstrap admin.
+4. Optional: set `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`. On
+   startup the app creates/confirms that account and assigns any chats that
+   existed before multi-user support to it.
+5. To create an account from the command line instead, run:
+
+   ```bash
+   python -m scripts.create_user you@example.com --admin --claim-unowned
+   ```
+
+6. If you leave `SUPABASE_SECRET_KEY` as the example placeholder, signup falls
+   back to Supabase's email-confirmation setting and the bootstrap admin step
+   is skipped.
+
+Startup upgrades `data/app.sqlite` automatically: it adds a `user_id` column
+and a `users` table. No manual SQL is needed.
+
+Use `AUTH_REQUIRED=false` only while developing locally without Supabase; it
+creates a single `dev-user` account.
+
+The Streamlit session keeps the tokens in memory. Reloading the browser page
+clears them, so you will be asked to log in again.
 
 ## 4. Add the PDFs
 
@@ -105,7 +140,12 @@ uvicorn backend.main:app --reload
 ```
 
 On startup the app creates `data/checkpoints.sqlite` and `data/app.sqlite`.
-Existing conversations are restored from those files.
+Existing conversations are restored from those files. If a bootstrap admin is
+configured, it is created and receives any chats that predate multi-user
+support.
+
+All `/threads` and `/chat` requests require a Supabase access token. Sign up
+or log in from the Streamlit UI; it stores the token for the session.
 
 Use a **single uvicorn worker** while the project uses SQLite. Postgres is
 the upgrade path for multi-worker deployments.
@@ -144,6 +184,9 @@ python -m scripts.smoke_test_llm
 
 # Retrieval + medical scope
 python -m test.vector_db_test
+
+# Per-user thread isolation (uses a temporary database)
+python -m test.auth_isolation_test
 ```
 
 ## Troubleshooting
@@ -160,4 +203,7 @@ python -m test.vector_db_test
 | Slow first request | Scope check + reranker + LLM cold start |
 | Conversations disappeared | Check that `data/` is present and the app can write to it |
 | `database is locked` | Use one uvicorn worker and avoid opening the app DB in another program |
+| `401 Not authenticated` | Log in from the Streamlit UI; the access token is missing or expired |
+| Signup asks to confirm email | Set a real `SUPABASE_SECRET_KEY` to auto-confirm, or click the email link |
+| Bootstrap admin not created | The secret key is missing or still a placeholder in `.env` |
 | Scanned PDF has no text | OCR the PDF first; the loader only reads embedded text |

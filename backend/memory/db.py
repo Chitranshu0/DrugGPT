@@ -12,11 +12,21 @@ from backend.core.config import (
     SQLITE_CHECKPOINT_DB,
 )
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
+# Tables are created with the current shape. Older databases are upgraded in
+# init_app_db() by adding missing columns before any index that needs them.
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id    TEXT PRIMARY KEY,
+    email      TEXT NOT NULL UNIQUE,
+    is_admin   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
     thread_id     TEXT PRIMARY KEY,
+    user_id       TEXT,
     title         TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL,
@@ -30,6 +40,13 @@ CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+"""
+
+# Kept separate because it references a column that older databases must add
+# first (see _ensure_user_column).
+USER_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_conversations_user
+    ON conversations(user_id, updated_at DESC);
 """
 
 
@@ -62,14 +79,27 @@ async def open_app_db() -> AsyncIterator[aiosqlite.Connection]:
         await conn.close()
 
 
+async def _ensure_user_column(conn: aiosqlite.Connection) -> None:
+    """Add conversations.user_id to databases created before multi-user."""
+    cursor = await conn.execute("PRAGMA table_info(conversations)")
+    columns = {row["name"] for row in await cursor.fetchall()}
+    if "user_id" not in columns:
+        await conn.execute("ALTER TABLE conversations ADD COLUMN user_id TEXT")
+
+
 async def init_app_db() -> None:
-    """Create the application tables if they do not exist yet."""
+    """Create or upgrade the application tables."""
     ensure_data_dir()
 
     async with open_app_db() as conn:
         await conn.executescript(SCHEMA)
+        await _ensure_user_column(conn)
+        await conn.executescript(USER_INDEX)
         await conn.execute(
-            "INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)",
+            """
+            INSERT INTO app_meta (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
             ("schema_version", SCHEMA_VERSION),
         )
         await conn.commit()

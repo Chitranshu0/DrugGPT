@@ -5,9 +5,9 @@ The backend is split into four layers, so each part has one clear job.
 
 | Layer | Folder | Job |
 | --- | --- | --- |
-| HTTP | `backend/api/` | Receive requests, validate input, return responses |
-| Core | `backend/core/` | Settings, Pinecone client, text cleanup |
-| Memory | `backend/memory/` | Manage conversation metadata in SQLite |
+| HTTP | `backend/api/` | Receive requests, validate input, check the bearer token, return responses |
+| Core | `backend/core/` | Settings, Supabase auth client, Pinecone client, text cleanup |
+| Memory | `backend/memory/` | Manage users and per-user conversation metadata in SQLite |
 | RAG | `backend/rag/` | Search Pinecone, ask the LLM, run the graph |
 | Ingestion | `backend/ingestion/` | Load PDFs and upload chunks to Pinecone |
 
@@ -16,10 +16,12 @@ The backend is split into four layers, so each part has one clear job.
 ```text
 Streamlit UI  (frontend/streamlit_app.py)
         |
-        |  GET/POST /threads, POST /chat { message, thread_id }
+        |  POST /auth/login, then GET/POST /threads, POST /chat
+        |  Authorization: Bearer <supabase access token>
         v
 FastAPI routes  (backend/api/routes/)
         |
+        |  get_current_user -> Supabase token check -> local user row
         v
 Compiled LangGraph graph  (app.state.graph)
         |
@@ -43,7 +45,8 @@ data/checkpoints.sqlite by AsyncSqliteSaver.
 
 ```
 startup
-  -> create data/ and app.sqlite tables
+  -> create data/ and app.sqlite tables (schema migration adds users/user_id)
+  -> bootstrap the optional admin and assign ownerless chats
   -> open AsyncSqliteSaver on data/checkpoints.sqlite
   -> compile the graph once and store it on app.state
 
@@ -61,11 +64,13 @@ Two SQLite files, each with one owner:
 | File | Owner | Contents |
 | --- | --- | --- |
 | `data/checkpoints.sqlite` | LangGraph | Per-thread graph state, including messages |
-| `data/app.sqlite` | Our code | Thread titles, timestamps, message counts |
+| `data/app.sqlite` | Our code | Users, thread titles, timestamps, message counts, owner (`user_id`) |
 
-The checkpointer is short-term memory: it keeps each conversation separate
-by `thread_id` and survives server restarts. A future `AsyncSqliteStore` can
-add long-term memory without changing these files.
+The checkpointer is short-term memory: it keeps each conversation separate by
+`thread_id` and survives server restarts. Ownership is enforced in
+`app.sqlite`: routes look up the thread for the signed-in user before touching
+checkpoints. A future `AsyncSqliteStore` can add long-term memory without
+changing these files.
 
 ## Ingestion flow
 
@@ -89,3 +94,4 @@ Run it with `python -m scripts.ingest`. See
 4. **Run commands from the project root.** That keeps `backend.*` imports working.
 5. **The database is opened at startup, not import time.** `main.py` owns the checkpointer lifecycle.
 6. **`thread_id` is the conversation boundary.** Never reuse an id for a different chat.
+7. **Ownership is checked before checkpoints.** A thread belongs to one `user_id`; foreign ids return `404`.

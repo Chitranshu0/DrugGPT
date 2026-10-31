@@ -8,6 +8,30 @@ A short, plain-English record of changes.
 
 ---
 
+## Multi-user accounts + private chats (latest)
+
+- Supabase Auth is now the identity provider. New `POST /auth/signup`,
+  `POST /auth/login`, `POST /auth/refresh`, and `GET /auth/me` routes proxy the
+  flow, so the frontend never holds the secret key.
+- Every `/threads` and `/chat` request requires `Authorization: Bearer ...`.
+  `backend/api/dependencies.py` verifies the token with Supabase and syncs a
+  local user row.
+- Conversations are scoped by `user_id`. Another user's thread returns `404`
+  instead of leaking its existence.
+- `data/app.sqlite` is upgraded automatically: new `users` table and a
+  `user_id` column on `conversations` (schema version 2).
+- Optional `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` create the first
+  admin and assign chats that predate multi-user support.
+- The Streamlit UI has login/signup tabs, a logout button, and automatic token
+  refresh on `401`.
+- New manual check: `python -m test.auth_isolation_test`.
+- New CLI: `python -m scripts.create_user <email> --admin --claim-unowned`.
+- New settings: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+  `SUPABASE_SECRET_KEY`, `AUTH_REQUIRED`, `BOOTSTRAP_ADMIN_EMAIL`,
+  `BOOTSTRAP_ADMIN_PASSWORD`.
+
+---
+
 ## Medical vector database rebuilt with Pinecone integrated embedding
 
 - The knowledge base now lives in the `medicalchatbot` Pinecone **document

@@ -3,10 +3,12 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from langchain_core.messages import BaseMessage
 
+from backend.api.dependencies import get_current_user
 from backend.api.schemas import (
+    AuthUser,
     MessageOut,
     ThreadDetail,
     ThreadRenameRequest,
@@ -60,23 +62,31 @@ async def _load_messages(request: Request, thread_id: str) -> list[MessageOut]:
 
 
 @router.get("", response_model=list[ThreadSummary])
-async def list_threads() -> list[ThreadSummary]:
-    """Return all conversations, most recently active first."""
-    rows = await conversations.list_threads()
+async def list_threads(
+    user: AuthUser = Depends(get_current_user),
+) -> list[ThreadSummary]:
+    """Return the signed-in user's conversations, most recently active first."""
+    rows = await conversations.list_threads(user.id)
     return [ThreadSummary(**row) for row in rows]
 
 
 @router.post("", response_model=ThreadSummary, status_code=status.HTTP_201_CREATED)
-async def create_thread() -> ThreadSummary:
+async def create_thread(
+    user: AuthUser = Depends(get_current_user),
+) -> ThreadSummary:
     """Create an empty conversation and return its id."""
-    row = await conversations.create_thread(str(uuid.uuid4()))
+    row = await conversations.create_thread(user.id, str(uuid.uuid4()))
     return ThreadSummary(**row)
 
 
 @router.get("/{thread_id}", response_model=ThreadDetail)
-async def get_thread(thread_id: str, request: Request) -> ThreadDetail:
+async def get_thread(
+    thread_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> ThreadDetail:
     """Return one conversation with its persisted messages."""
-    row = await conversations.get_thread(thread_id)
+    row = await conversations.get_thread(user.id, thread_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Thread not found")
 
@@ -93,29 +103,34 @@ async def get_thread(thread_id: str, request: Request) -> ThreadDetail:
 async def rename_thread(
     thread_id: str,
     payload: ThreadRenameRequest,
+    user: AuthUser = Depends(get_current_user),
 ) -> ThreadSummary:
     """Rename a conversation."""
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title cannot be empty")
 
-    renamed = await conversations.rename_thread(thread_id, title)
+    renamed = await conversations.rename_thread(user.id, thread_id, title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    row = await conversations.get_thread(thread_id)
+    row = await conversations.get_thread(user.id, thread_id)
     return ThreadSummary(**row)
 
 
 @router.delete("/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_thread(thread_id: str, request: Request) -> Response:
+async def delete_thread(
+    thread_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> Response:
     """Delete a conversation and all of its persisted graph state."""
-    row = await conversations.get_thread(thread_id)
+    row = await conversations.get_thread(user.id, thread_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Thread not found")
 
     checkpointer = request.app.state.checkpointer
     await checkpointer.adelete_thread(thread_id)
-    await conversations.delete_thread(thread_id)
+    await conversations.delete_thread(user.id, thread_id)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

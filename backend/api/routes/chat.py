@@ -16,11 +16,12 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
-from backend.api.schemas import ChatRequest
+from backend.api.dependencies import get_current_user
+from backend.api.schemas import AuthUser, ChatRequest
 from backend.memory import conversations
 from backend.rag.generation import TOOL_NAME, TOOL_TITLE
 
@@ -56,7 +57,7 @@ def _tool_payload(message: str, status: str, summary: str = "") -> dict:
     return tool
 
 
-async def generate_response(graph, message: str, thread_id: str):
+async def generate_response(graph, message: str, thread_id: str, user_id: str):
     """Run the graph and stream status, tool, source, and answer events."""
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -90,7 +91,7 @@ async def generate_response(graph, message: str, thread_id: str):
         )
         return
 
-    await conversations.record_turn(thread_id, message)
+    await conversations.record_turn(user_id, thread_id, message)
 
     sources = result.get("sources", []) or []
     yield _event(
@@ -107,16 +108,23 @@ async def generate_response(graph, message: str, thread_id: str):
 
 
 @router.post("/chat")
-async def chat(payload: ChatRequest, request: Request):
+async def chat(
+    payload: ChatRequest,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+):
     """Answer a medical question using retrieved context."""
     thread_id = payload.thread_id or str(uuid.uuid4())
 
     # Create the metadata row before generation so a new chat appears in the
-    # sidebar even if the first answer takes a while.
-    await conversations.ensure_thread(thread_id)
+    # sidebar even if the first answer takes a while. A thread id that belongs
+    # to somebody else is reported as missing.
+    thread = await conversations.ensure_thread(user.id, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
 
     return StreamingResponse(
-        generate_response(request.app.state.graph, payload.message, thread_id),
+        generate_response(request.app.state.graph, payload.message, thread_id, user.id),
         media_type="application/x-ndjson",
         headers={"X-Thread-ID": thread_id},
     )

@@ -49,6 +49,8 @@ This project is also a playground for learning:
 * SQLite conversation persistence
 * Multiple chat threads with resume
 * Message history across restarts
+* Multi-user accounts with Supabase Auth
+* Private conversation history per user
 
 ---
 
@@ -65,6 +67,10 @@ This project is also a playground for learning:
 ### Backend
 
 * FastAPI
+
+### Authentication
+
+* Supabase Auth (email + password)
 
 ### Frontend
 
@@ -94,18 +100,23 @@ DrugGPT/
 │   ├── __init__.py
 │   ├── main.py                  # Creates the app and includes routers
 │   ├── api/
+│   │   ├── dependencies.py      # Supabase token check for protected routes
 │   │   ├── schemas.py           # Request/response models
 │   │   └── routes/
+│   │       ├── auth.py          # Signup, login, refresh, me
 │   │       ├── chat.py          # POST /chat
-│   │       ├── threads.py       # Chat list, history, rename, delete
+│   │       ├── threads.py       # Per-user chat list, history, rename, delete
 │   │       └── health.py        # GET /health, /healthz
 │   ├── core/
 │   │   ├── config.py            # All environment settings
+│   │   ├── supabase_client.py   # Auth client and admin helpers
 │   │   ├── pinecone_client.py   # Index connection + schema check
 │   │   └── text.py              # PDF text cleanup
 │   ├── memory/
-│   │   ├── db.py                # SQLite setup and schema
-│   │   └── conversations.py     # Thread metadata CRUD
+│   │   ├── db.py                # SQLite setup, schema, migration
+│   │   ├── users.py             # Local mirror of Supabase accounts
+│   │   ├── bootstrap.py         # First-run admin + thread backfill
+│   │   └── conversations.py     # Per-user thread metadata CRUD
 │   ├── rag/
 │   │   ├── state.py             # State shared between graph nodes
 │   │   ├── scope.py             # Medical-only question classifier
@@ -139,15 +150,17 @@ DrugGPT/
 ```
 Streamlit UI
     |
+    |  login/signup + Bearer token
     v
-FastAPI /threads and /chat  (backend/api/routes/)
-    |
-    v
-LangGraph workflow  (backend/rag/graph.py)
-    |-----------------------------|
-    v                             v
-RAG step                    SQLite checkpoint
-(Pinecone + Groq)          (data/checkpoints.sqlite)
+FastAPI /auth, /threads, /chat  (backend/api/routes/)
+    |                    |
+    v                    v
+Supabase Auth      LangGraph workflow  (backend/rag/graph.py)
+(token checks)           |
+                    |-----------------------------|
+                    v                             v
+                RAG step                    SQLite checkpoint
+                (Pinecone + Groq)          (data/checkpoints.sqlite)
 ```
 
 ---
@@ -189,6 +202,12 @@ cp .env.example .env
 ```
 
 Add your API keys.
+
+This project uses Supabase Auth for accounts. Set `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY` in `.env`, then either
+sign up from the Streamlit login screen or configure
+`BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` for a first admin account.
+See [docs/setup.md](docs/setup.md#3b-authentication-supabase).
 
 ---
 

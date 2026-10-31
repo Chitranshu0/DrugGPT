@@ -1,4 +1,8 @@
-"""Read and write conversation metadata in the application database."""
+"""Read and write conversation metadata in the application database.
+
+Every query is scoped to a ``user_id`` so one account can never list, open,
+rename, or delete another account's conversations.
+"""
 
 from datetime import datetime, timezone
 from typing import Any
@@ -35,7 +39,11 @@ def auto_title(message: str) -> str:
     return f"{title[:THREAD_TITLE_MAX_LEN].rstrip()}..."
 
 
-async def create_thread(thread_id: str, title: str = DEFAULT_TITLE) -> dict[str, Any]:
+async def create_thread(
+    user_id: str,
+    thread_id: str,
+    title: str = DEFAULT_TITLE,
+) -> dict[str, Any]:
     """Create one conversation row and return its summary."""
     now = _now()
 
@@ -43,33 +51,40 @@ async def create_thread(thread_id: str, title: str = DEFAULT_TITLE) -> dict[str,
         await conn.execute(
             """
             INSERT INTO conversations
-                (thread_id, title, created_at, updated_at, message_count)
-            VALUES (?, ?, ?, ?, 0)
+                (thread_id, user_id, title, created_at, updated_at, message_count)
+            VALUES (?, ?, ?, ?, ?, 0)
             """,
-            (thread_id, title, now, now),
+            (thread_id, user_id, title, now, now),
         )
         await conn.commit()
         cursor = await conn.execute(
-            "SELECT * FROM conversations WHERE thread_id = ?",
-            (thread_id,),
+            "SELECT * FROM conversations WHERE thread_id = ? AND user_id = ?",
+            (thread_id, user_id),
         )
         row = await cursor.fetchone()
 
     return _summary(row)
 
 
-async def ensure_thread(thread_id: str) -> dict[str, Any]:
-    """Create an empty thread if it does not exist, then return it."""
+async def ensure_thread(
+    user_id: str,
+    thread_id: str,
+) -> dict[str, Any] | None:
+    """Create an empty thread if needed, then return it.
+
+    Returns None when the id already belongs to a different user, so callers
+    can answer 404 instead of revealing the conversation's existence.
+    """
     now = _now()
 
     async with open_app_db() as conn:
         await conn.execute(
             """
             INSERT OR IGNORE INTO conversations
-                (thread_id, title, created_at, updated_at, message_count)
-            VALUES (?, ?, ?, ?, 0)
+                (thread_id, user_id, title, created_at, updated_at, message_count)
+            VALUES (?, ?, ?, ?, ?, 0)
             """,
-            (thread_id, DEFAULT_TITLE, now, now),
+            (thread_id, user_id, DEFAULT_TITLE, now, now),
         )
         await conn.commit()
         cursor = await conn.execute(
@@ -78,33 +93,49 @@ async def ensure_thread(thread_id: str) -> dict[str, Any]:
         )
         row = await cursor.fetchone()
 
+    if row is None or row["user_id"] != user_id:
+        return None
+
     return _summary(row)
 
 
-async def list_threads() -> list[dict[str, Any]]:
-    """Return every conversation, most recently active first."""
+async def list_threads(user_id: str) -> list[dict[str, Any]]:
+    """Return one user's conversations, most recently active first."""
     async with open_app_db() as conn:
         cursor = await conn.execute(
-            "SELECT * FROM conversations ORDER BY updated_at DESC, thread_id DESC"
+            """
+            SELECT * FROM conversations
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, thread_id DESC
+            """,
+            (user_id,),
         )
         rows = await cursor.fetchall()
 
     return [_summary(row) for row in rows]
 
 
-async def get_thread(thread_id: str) -> dict[str, Any] | None:
-    """Return one conversation, or None when it does not exist."""
+async def get_thread(
+    user_id: str,
+    thread_id: str,
+) -> dict[str, Any] | None:
+    """Return one conversation owned by the user, or None."""
     async with open_app_db() as conn:
         cursor = await conn.execute(
-            "SELECT * FROM conversations WHERE thread_id = ?",
-            (thread_id,),
+            "SELECT * FROM conversations WHERE thread_id = ? AND user_id = ?",
+            (thread_id, user_id),
         )
         row = await cursor.fetchone()
 
     return _summary(row) if row else None
 
 
-async def record_turn(thread_id: str, message: str, count: int = 2) -> None:
+async def record_turn(
+    user_id: str,
+    thread_id: str,
+    message: str,
+    count: int = 2,
+) -> None:
     """Update thread activity after a completed user/assistant turn.
 
     A thread created with the default title is renamed from the first user
@@ -117,39 +148,51 @@ async def record_turn(thread_id: str, message: str, count: int = 2) -> None:
     async with open_app_db() as conn:
         await conn.execute(
             """
-            INSERT INTO conversations
-                (thread_id, title, created_at, updated_at, message_count)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(thread_id) DO UPDATE SET
-                updated_at = excluded.updated_at,
-                message_count = conversations.message_count + excluded.message_count,
-                title = CASE
-                    WHEN conversations.title = ? THEN excluded.title
-                    ELSE conversations.title
-                END
+            UPDATE conversations SET
+                updated_at = ?,
+                message_count = message_count + ?,
+                title = CASE WHEN title = ? THEN ? ELSE title END
+            WHERE thread_id = ? AND user_id = ?
             """,
-            (thread_id, title, now, now, count, DEFAULT_TITLE),
+            (now, count, DEFAULT_TITLE, title, thread_id, user_id),
         )
         await conn.commit()
 
 
-async def rename_thread(thread_id: str, title: str) -> bool:
+async def rename_thread(user_id: str, thread_id: str, title: str) -> bool:
     """Rename a conversation. Returns False when the thread is missing."""
     async with open_app_db() as conn:
         cursor = await conn.execute(
-            "UPDATE conversations SET title = ? WHERE thread_id = ?",
-            (title, thread_id),
+            """
+            UPDATE conversations SET title = ?
+            WHERE thread_id = ? AND user_id = ?
+            """,
+            (title, thread_id, user_id),
         )
         await conn.commit()
         return cursor.rowcount > 0
 
 
-async def delete_thread(thread_id: str) -> bool:
+async def delete_thread(user_id: str, thread_id: str) -> bool:
     """Delete a conversation row. Returns False when the thread is missing."""
     async with open_app_db() as conn:
         cursor = await conn.execute(
-            "DELETE FROM conversations WHERE thread_id = ?",
-            (thread_id,),
+            "DELETE FROM conversations WHERE thread_id = ? AND user_id = ?",
+            (thread_id, user_id),
         )
         await conn.commit()
         return cursor.rowcount > 0
+
+
+async def assign_unowned_threads(user_id: str) -> int:
+    """Give conversations created before multi-user support to one user.
+
+    Returns the number of rows that were backfilled.
+    """
+    async with open_app_db() as conn:
+        cursor = await conn.execute(
+            "UPDATE conversations SET user_id = ? WHERE user_id IS NULL",
+            (user_id,),
+        )
+        await conn.commit()
+        return cursor.rowcount
