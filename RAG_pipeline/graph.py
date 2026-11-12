@@ -1,7 +1,5 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.prebuilt import ToolNode, tools_condition
-
 import sqlite3
 
 from state import MedicalState
@@ -21,8 +19,8 @@ def chat_node(state: MedicalState):
         "answer": result["answer"]
     }
 
-@ToolNode 
 def rag_node(state: MedicalState):
+    """Run retrieval-augmented generation for the incoming medical question."""
     result = rag_tool(state["question"])
 
     return {
