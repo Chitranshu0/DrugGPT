@@ -2,7 +2,11 @@
 *vscode
 __pycache__/
 *.db
+RAG_pipeline/chroma_db/
 RAG_pipeline/Medical Books/
+data/raw/
+data/chroma/
+data/checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

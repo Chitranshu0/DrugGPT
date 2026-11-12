@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "druggpt"
+version = "2.0.0"
+description = "Source-grounded medical and drug-study RAG assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "chromadb>=0.5",
+  "fastapi>=0.115",
+  "langchain-chroma>=0.2",
+  "langchain-community>=0.3",
+  "langchain-groq>=0.2",
+  "langchain-huggingface>=0.1",
+  "langchain-text-splitters>=0.3",
+  "langgraph>=0.2",
+  "langgraph-checkpoint-sqlite>=2.0",
+  "pymupdf>=1.24",
+  "python-dotenv>=1.0",
+  "sentence-transformers>=3.0",
+  "streamlit>=1.40",
+  "requests>=2.32",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27", "pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 128
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.coverage.run]
+source = ["druggpt"]

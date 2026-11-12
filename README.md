@@ -1,227 +1,54 @@
-# 💊 DrugGPT
+# DrugGPT
 
-A simple Medical RAG (Retrieval-Augmented Generation) chatbot built using LangGraph, LangChain, Pinecone, Groq, FastAPI, and Streamlit.
+DrugGPT is a source-grounded assistant for **medical science and drug-study research**. It automatically searches locally indexed medical PDFs, answers only when relevant evidence is found, and displays the supporting source and page for every answer.
 
-This project started as a way to learn how modern AI assistants actually work behind the scenes instead of just calling an LLM API and hoping for the best.
+It is designed for students and researchers. It is not a diagnostic, prescribing, or emergency-care service.
 
-The idea is simple:
+## What it does
 
-* Store medical books in a vector database
-* Retrieve relevant information based on the user's question
-* Feed that information to an LLM
-* Generate grounded answers instead of hallucinating
+- FastAPI backend with typed JSON chat responses
+- Streamlit research chat interface with visible RAG tool activity and source cards
+- Local ChromaDB vector index for licensed medical PDFs
+- LangGraph-orchestrated `search_medical_sources` tool
+- Educational-only scope and safety guardrails
+- Pytest and Ruff configuration for repeatable development
 
----
+## Architecture
 
-## Why this project?
+`Streamlit UI → FastAPI → scope/safety gate → search_medical_sources → ChromaDB → grounded LLM answer + citations`
 
-Most AI chatbots can answer medical questions, but they often rely only on their pre-trained knowledge.
+The project code lives in `src/druggpt`; local PDF files, the Chroma index, and chat checkpoints live under the untracked `data/` directory.
 
-DrugGPT tries to answer questions using information retrieved from medical books before generating a response.
-
-This project is also a playground for learning:
-
-* RAG Pipelines
-* LangGraph
-* Agentic AI
-* Vector Databases
-* LLM Engineering
-* Open Source Collaboration
-
----
-
-## Current Features
-
-* PDF document ingestion
-* Medical book processing
-* Text chunking
-* Embedding generation
-* Pinecone vector database
-* Semantic search
-* RAG pipeline
-* LangGraph workflow
-* FastAPI backend
-* Streamlit frontend
-* LangSmith tracing
-* Conversation memory
-
----
-
-## Tech Stack
-
-### AI
-
-* LangChain
-* LangGraph
-* Groq (Llama 3.1)
-* Sentence Transformers
-
-### Backend
-
-* FastAPI
-
-### Frontend
-
-* Streamlit
-
-### Database
-
-* Pinecone Vector Database
-
-### Observability
-
-* LangSmith
-
-### Document Processing
-
-* PyMuPDF
-
----
-
-## Project Structure
+## Quick start
 
 ```bash
-DrugGPT/
-│
-├── RAG_pipeline/
-│   ├── graph.py
-│   ├── rag.py
-│   ├── retriever.py
-│   ├── vector_db.py
-│   ├── state.py
-│   ├── main.py
-│   ├── frontend.py
-│   └── requirements.txt
-│
-├── .env.example
-├── README.md
-└── .gitignore
-```
-
----
-
-## Setup
-
-Clone the repository:
-
-```bash
-git clone https://github.com/your-username/DrugGPT.git
-
-cd DrugGPT
-```
-
-Create a virtual environment:
-
-```bash
-conda create -n ai python=3.11
-
-conda activate ai
-```
-
-Install dependencies:
-
-```bash
-pip install -r RAG_pipeline/requirements.txt
-```
-
-Create your `.env` file:
-
-```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
 cp .env.example .env
+mkdir -p data/raw
+# Copy only licensed medical PDFs into data/raw/
+uvicorn druggpt.api.app:app --reload
 ```
 
-Add your API keys.
-
----
-
-## Run the Backend
+In another terminal:
 
 ```bash
-cd RAG_pipeline
-
-python -m uvicorn main:app --reload
+streamlit run src/druggpt/ui/app.py
 ```
 
----
+Use **Rebuild medical source index** in the sidebar after adding PDFs. The API is available at `http://127.0.0.1:8000`; the UI defaults to the same address.
 
-## Run the Frontend
+## Safety and limitations
 
-```bash
-streamlit run frontend.py
-```
+DrugGPT answers medical science and drug-study questions only. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. If no indexed source sufficiently supports a question, it asks for a narrower rephrase rather than inventing an answer. Verify research conclusions against the original materials and qualified professionals.
 
----
+## Documentation
 
-## Roadmap
-
-### Phase 1
-
-* Basic Medical RAG
-* Pinecone Retrieval
-* FastAPI Backend
-* Streamlit UI
-
-### Phase 2
-
-* Streaming Responses
-* SQLite/Postgres Memory
-* Resume Conversations
-
-### Phase 3
-
-* Multi-Agent System
-* Drug Search Tool
-* Symptom Analysis Tool
-* Medical Calculator Tool
-* Web Search Integration
-
-### Phase 4
-
-* Multi-modal Inputs
-* Medical Reports
-* Image-based Diagnosis Research
-
----
-
-## Open Source Contributions
-
-This project is student-friendly.
-
-If you are:
-
-* Learning LangGraph
-* Learning RAG
-* Learning LLM Engineering
-* Looking for your first open-source contribution
-
-you are welcome here.
-
-Some beginner-friendly contribution ideas:
-
-* Improve UI
-* Better prompts
-* Add citations
-* Add memory
-* Improve retrieval quality
-* Add evaluation metrics
-* Improve documentation
-
-No contribution is too small.
-
----
-
-## Disclaimer
-
-This project is for educational and research purposes only.
-
-It is NOT a replacement for professional medical advice, diagnosis, or treatment.
-
-Always consult qualified healthcare professionals for medical decisions.
-
----
-
-## Built By Students, For Students
-
-If you're learning AI Engineering, Data Science, MLOps, or Generative AI and want to contribute, feel free to open an issue or submit a pull request.
-
-Let's build cool stuff and learn together 🚀
+- [Architecture](docs/architecture.md)
+- [Setup and configuration](docs/setup.md)
+- [API reference](docs/api.md)
+- [RAG and source-data workflow](docs/rag-and-data.md)
+- [Safety and scope](docs/safety-and-scope.md)
+- [Development guide](docs/development.md)
+- [Architecture decision records](docs/adr/0001-local-chroma-source-grounded-rag.md)
