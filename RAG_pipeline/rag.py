@@ -1,15 +1,8 @@
 from dotenv import load_dotenv
 
 from retriever import retrieve_context # type: ignore
-from langchain_groq import ChatGroq
+from model import llm 
 from langchain_core.prompts import ChatPromptTemplate
-
-load_dotenv()
-
-model = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0.2, max_tokens=600
-)
 
 prompt = ChatPromptTemplate.from_template("""
 Context:
@@ -24,7 +17,7 @@ Answer:
 def rag_tool(question: str):
     context = retrieve_context(question)
 
-    chain = prompt | model
+    chain = prompt | llm
 
     response = chain.invoke({
         "context": context,

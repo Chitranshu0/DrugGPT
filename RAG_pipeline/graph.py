@@ -7,6 +7,8 @@ import sqlite3
 from state import MedicalState
 from rag import rag_tool
 
+from model import llm 
+
 
 def chat_node(state: MedicalState):
     '''
