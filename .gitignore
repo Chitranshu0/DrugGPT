@@ -1,4 +1,5 @@
 .env
+*vscode
 __pycache__/
 *.db
 RAG_pipeline/Medical Books/

@@ -1,0 +1,10 @@
+langchain
+langchain-community
+langchain-pinecone
+sentence-transformers
+pymupdf
+pinecone
+python-dotenv
+langgraph-checkpoint-sqlite
+psycopg[binary]
+fastapi
