@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field
 
 class ChatStatus(StrEnum):
     ANSWERED = "answered"
-    REPHRASE_REQUIRED = "rephrase_required"
     OUT_OF_SCOPE = "out_of_scope"
     SAFETY_REFUSAL = "safety_refusal"
+    REVIEW_PENDING = "review_pending"
+    EMERGENCY_GUIDANCE = "emergency_guidance"
+    NEEDS_MORE_INFORMATION = "needs_more_information"
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,104 @@ class ChatRequest(BaseModel):
     thread_id: str = Field(min_length=1, max_length=128)
 
 
+class PatientCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    date_of_birth: str | None = None
+    sex: str | None = Field(default=None, max_length=50)
+
+
+class PatientUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    date_of_birth: str | None = None
+    sex: str | None = Field(default=None, max_length=50)
+
+
+class Patient(BaseModel):
+    id: str
+    name: str
+    date_of_birth: str | None = None
+    sex: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class PatientFactCreate(BaseModel):
+    category: str = Field(pattern="^(allergy|condition|medication|history|preference)$")
+    value: str = Field(min_length=1, max_length=1000)
+    approved: bool = False
+
+
+class PatientFact(BaseModel):
+    id: str
+    category: str
+    value: str
+    approved: bool
+    created_at: str
+
+
+class PatientSummary(BaseModel):
+    patient: Patient
+    summary: str | None = None
+    facts: list[PatientFact] = []
+
+
+class ConversationCreate(BaseModel):
+    patient_id: str
+    title: str = Field(default="New medical chat", min_length=1, max_length=160)
+
+
+class Conversation(BaseModel):
+    id: str
+    patient_id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class ConversationMessage(BaseModel):
+    id: str
+    conversation_id: str
+    role: str
+    content: str
+    status: str | None = None
+    created_at: str
+    metadata: dict = {}
+
+
+class MessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class ReviewDecisionRequest(BaseModel):
+    decision: str = Field(pattern="^(approved|rejected)$")
+    reviewer_name: str = Field(min_length=1, max_length=120)
+    approved_guidance: str | None = Field(default=None, max_length=4000)
+    reviewer_note: str | None = Field(default=None, max_length=2000)
+
+
+class MedicationReview(BaseModel):
+    id: str
+    patient_id: str
+    conversation_id: str
+    message_id: str
+    status: str
+    draft_guidance: str
+    reviewer_name: str | None = None
+    reviewer_note: str | None = None
+    approved_guidance: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceCitation] = []
     tool_activity: ToolActivity | None = None
     status: ChatStatus
     thread_id: str
+    review_id: str | None = None
+    review_status: str | None = None
+    answer_mode: str = "general_education"
 
 
 class DatabaseStatus(BaseModel):

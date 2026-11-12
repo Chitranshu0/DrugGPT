@@ -1,47 +1,55 @@
-"""Deterministic first-pass scope and clinical safety checks."""
+"""Triage rules for a conversational, educational medical assistant."""
 
 import re
 from enum import StrEnum
 
 
-class GuardrailDecision(StrEnum):
-    ALLOW = "allow"
+class Triage(StrEnum):
+    GENERAL = "general"
+    SYMPTOM = "symptom"
+    MEDICATION_REVIEW = "medication_review"
+    EMERGENCY = "emergency"
     OUT_OF_SCOPE = "out_of_scope"
-    SAFETY_REFUSAL = "safety_refusal"
 
 
 MEDICAL_TERMS = {
-    "drug", "medicine", "medication", "pharmacology", "pharmacokinetic", "dose",
-    "dosage", "adverse", "side effect", "contraindication", "antibiotic", "disease",
-    "anatomy", "physiology", "clinical", "medical", "treatment", "therapy", "diagnosis",
-    "symptom", "pathology", "vaccine", "prescription", "patient", "trial",
+    "aids", "adverse", "allergy", "anatomy", "antibiotic", "blood", "cancer", "carcinogen",
+    "clinical", "condition", "covid", "disease", "doctor", "drug", "health", "heart", "hiv",
+    "infection", "medicine", "medication", "mental", "pain", "patient", "pharmacology", "pregnancy",
+    "prevention", "prescription", "risk", "side effect", "symptom", "therapy", "treatment", "tumor",
+    "vaccine", "virus", "wellness", "diabetes", "asthma", "headache", "fever", "cough", "rash",
 }
-PERSONAL_CARE_PATTERNS = (
-    r"\b(what|which) (drug|medicine|medication|dose|dosage) (should|can) i (take|use)\b",
-    r"\bdiagnos[ei] me\b",
-    r"\bdo i have\b",
-    r"\bfor my (symptom|condition|pain|child|baby|pregnancy)\b",
-    r"\b(emergency|overdose|suicid|chest pain|can'?t breathe|difficulty breathing)\b",
+OUT_OF_SCOPE_TERMS = {"code", "python", "football", "weather", "recipe", "bitcoin", "movie", "song"}
+EMERGENCY_PATTERNS = (
+    r"\b(chest pain|can'?t breathe|difficulty breathing|severe bleeding|unconscious|stroke|overdose)\b",
+    r"\b(suicid|kill myself|self harm)\b",
 )
+MEDICATION_PATTERNS = (
+    r"\b(what|which) (medicine|medication|drug|tablet|pill|dose|dosage) (should|can) i (take|use)\b",
+    r"\b(recommend|prescribe|suggest) (a |some )?(medicine|medication|drug|tablet|pill)\b",
+    r"\bhow much (medicine|medication|drug|dose|dosage)\b",
+    r"\b(can i|should i) (start|stop|change|increase|decrease)\b.*\b(medicine|medication|drug|dose)\b",
+)
+SYMPTOM_TERMS = {"pain", "fever", "cough", "rash", "nausea", "vomit", "diarrhea", "dizzy", "fatigue", "headache", "symptom", "sick"}
 
 
-def classify_query(query: str) -> GuardrailDecision:
-    """Allow research questions, refusing personal or non-medical requests."""
+def triage_query(query: str) -> Triage:
+    """Classify chat intent without excluding common medical language."""
     normalized = query.lower()
-    if any(re.search(pattern, normalized) for pattern in PERSONAL_CARE_PATTERNS):
-        return GuardrailDecision.SAFETY_REFUSAL
+    if any(re.search(pattern, normalized) for pattern in EMERGENCY_PATTERNS):
+        return Triage.EMERGENCY
+    if any(re.search(pattern, normalized) for pattern in MEDICATION_PATTERNS):
+        return Triage.MEDICATION_REVIEW
     tokens = set(re.findall(r"[a-z]+", normalized))
-    if not tokens.intersection(MEDICAL_TERMS):
-        return GuardrailDecision.OUT_OF_SCOPE
-    return GuardrailDecision.ALLOW
+    if tokens.intersection(SYMPTOM_TERMS):
+        return Triage.SYMPTOM
+    if tokens.intersection(MEDICAL_TERMS) or not tokens.intersection(OUT_OF_SCOPE_TERMS):
+        return Triage.GENERAL
+    return Triage.OUT_OF_SCOPE
 
 
-OUT_OF_SCOPE_MESSAGE = (
-    "DrugGPT is limited to educational medical science and drug-study questions. "
-    "Please rephrase your question around pharmacology, medicine, or biomedical study."
-)
-SAFETY_MESSAGE = (
-    "I can provide educational, source-based medical-study information, but I cannot diagnose, "
-    "recommend a personal dose or treatment, or guide urgent care. Please contact a qualified "
-    "healthcare professional; for urgent symptoms or a possible overdose, seek emergency help now."
+OUT_OF_SCOPE_MESSAGE = "I’m DrugGPT, so I can help with medical, health, medication, and wellbeing questions."
+EMERGENCY_MESSAGE = (
+    "Your message may describe an emergency. Please contact local emergency services or go to the nearest "
+    "emergency department now. If possible, ask someone nearby to help you."
 )
