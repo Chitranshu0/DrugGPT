@@ -5,7 +5,7 @@ import os
 import requests
 import streamlit as st
 
-from druggpt.ui.api_client import DrugGPTApiClient
+from src.ui.api_client import DrugGPTApiClient
 
 st.set_page_config(page_title="DrugGPT Patient Profile", page_icon="🧾", layout="wide")
 client = DrugGPTApiClient(os.getenv("DRUGGPT_API_URL", "http://127.0.0.1:8000"))

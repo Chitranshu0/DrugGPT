@@ -5,8 +5,8 @@ from langchain_chroma import Chroma
 from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from druggpt.core.config import Settings, settings
-from druggpt.rag.retrieval import COLLECTION_NAME, get_embeddings
+from src.core.config import Settings, settings
+from src.rag.retrieval import COLLECTION_NAME, get_embeddings
 
 
 def rebuild_index(app_settings: Settings = settings) -> dict[str, int | str]:

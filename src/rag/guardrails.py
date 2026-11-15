@@ -30,7 +30,20 @@ MEDICATION_PATTERNS = (
     r"\bhow much (medicine|medication|drug|dose|dosage)\b",
     r"\b(can i|should i) (start|stop|change|increase|decrease)\b.*\b(medicine|medication|drug|dose)\b",
 )
-SYMPTOM_TERMS = {"pain", "fever", "cough", "rash", "nausea", "vomit", "diarrhea", "dizzy", "fatigue", "headache", "symptom", "sick"}
+SYMPTOM_TERMS = {
+    "pain",
+    "fever",
+    "cough",
+    "rash",
+    "nausea",
+    "vomit",
+    "diarrhea",
+    "dizzy",
+    "fatigue",
+    "headache",
+    "symptom",
+    "sick",
+}
 
 
 def triage_query(query: str) -> Triage:

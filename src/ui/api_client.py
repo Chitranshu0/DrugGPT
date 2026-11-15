@@ -8,7 +8,8 @@ class DrugGPTApiClient:
         self.base_url = base_url.rstrip("/")
 
     def _request(self, method: str, path: str, **kwargs) -> dict | list:
-        response = requests.request(method, f"{self.base_url}{path}", timeout=120, **kwargs)
+        timeout = kwargs.pop("timeout", 120)
+        response = requests.request(method, f"{self.base_url}{path}", timeout=timeout, **kwargs)
         response.raise_for_status()
         return response.json()
 
@@ -28,7 +29,11 @@ class DrugGPTApiClient:
         return self._request("GET", f"/patients/{patient_id}/summary")
 
     def add_fact(self, patient_id: str, category: str, value: str, approved: bool = True) -> dict:
-        return self._request("POST", f"/patients/{patient_id}/facts", json={"category": category, "value": value, "approved": approved})
+        return self._request(
+            "POST",
+            f"/patients/{patient_id}/facts",
+            json={"category": category, "value": value, "approved": approved},
+        )
 
     def conversations(self, patient_id: str) -> list[dict]:
         return self._request("GET", f"/patients/{patient_id}/conversations")
@@ -48,5 +53,21 @@ class DrugGPTApiClient:
     def review(self, review_id: str) -> dict:
         return self._request("GET", f"/reviews/{review_id}")
 
-    def decide_review(self, review_id: str, decision: str, reviewer_name: str, approved_guidance: str | None, reviewer_note: str | None) -> dict:
-        return self._request("POST", f"/reviews/{review_id}/decision", json={"decision": decision, "reviewer_name": reviewer_name, "approved_guidance": approved_guidance, "reviewer_note": reviewer_note})
+    def decide_review(
+        self,
+        review_id: str,
+        decision: str,
+        reviewer_name: str,
+        approved_guidance: str | None,
+        reviewer_note: str | None,
+    ) -> dict:
+        return self._request(
+            "POST",
+            f"/reviews/{review_id}/decision",
+            json={
+                "decision": decision,
+                "reviewer_name": reviewer_name,
+                "approved_guidance": approved_guidance,
+                "reviewer_note": reviewer_note,
+            },
+        )

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from druggpt.core.models import (
+from src.core.models import (
     Conversation,
     ConversationMessage,
     MedicationReview,
@@ -182,14 +182,23 @@ class LocalStore:
 
     def list_conversations(self, patient_id: str) -> list[Conversation]:
         with self._connection() as conn:
-            rows = conn.execute("SELECT * FROM conversations WHERE patient_id=? ORDER BY updated_at DESC", (patient_id,)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM conversations WHERE patient_id=? ORDER BY updated_at DESC", (patient_id,)
+            ).fetchall()
         return [self._conversation(row) for row in rows]
 
     def ensure_demo_conversation(self, patient_id: str) -> Conversation:
         conversations = self.list_conversations(patient_id)
         return conversations[0] if conversations else self.create_conversation(patient_id, "General medical chat")
 
-    def add_message(self, conversation_id: str, role: str, content: str, status: str | None = None, metadata: dict | None = None) -> ConversationMessage:
+    def add_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        status: str | None = None,
+        metadata: dict | None = None,
+    ) -> ConversationMessage:
         self.get_conversation(conversation_id)
         message_id, now = str(uuid4()), _now()
         with self._connection() as conn:
@@ -198,7 +207,15 @@ class LocalStore:
                 (message_id, conversation_id, role, content, status, json.dumps(metadata or {}), now),
             )
             conn.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now, conversation_id))
-        return ConversationMessage(id=message_id, conversation_id=conversation_id, role=role, content=content, status=status, created_at=now, metadata=metadata or {})
+        return ConversationMessage(
+            id=message_id,
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            status=status,
+            created_at=now,
+            metadata=metadata or {},
+        )
 
     def list_messages(self, conversation_id: str, limit: int | None = None) -> list[ConversationMessage]:
         query = "SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at"
@@ -210,7 +227,15 @@ class LocalStore:
             rows = conn.execute(query, params).fetchall()
         return [self._message(row) for row in rows]
 
-    def create_or_get_review(self, patient_id: str, conversation_id: str, message_id: str, graph_thread_id: str, draft: str, context: dict) -> MedicationReview:
+    def create_or_get_review(
+        self,
+        patient_id: str,
+        conversation_id: str,
+        message_id: str,
+        graph_thread_id: str,
+        draft: str,
+        context: dict,
+    ) -> MedicationReview:
         with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM medication_reviews WHERE graph_thread_id=? ORDER BY created_at DESC LIMIT 1",
@@ -221,7 +246,18 @@ class LocalStore:
             review_id, now = str(uuid4()), _now()
             conn.execute(
                 "INSERT INTO medication_reviews VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)",
-                (review_id, patient_id, conversation_id, message_id, graph_thread_id, "pending", draft, json.dumps(context), now, now),
+                (
+                    review_id,
+                    patient_id,
+                    conversation_id,
+                    message_id,
+                    graph_thread_id,
+                    "pending",
+                    draft,
+                    json.dumps(context),
+                    now,
+                    now,
+                ),
             )
         return self.get_review(review_id)
 
@@ -241,13 +277,16 @@ class LocalStore:
 
     def list_reviews(self, status: str = "pending") -> list[MedicationReview]:
         with self._connection() as conn:
-            rows = conn.execute("SELECT * FROM medication_reviews WHERE status=? ORDER BY updated_at DESC", (status,)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM medication_reviews WHERE status=? ORDER BY updated_at DESC", (status,)
+            ).fetchall()
         return [self._review(row) for row in rows]
 
     def find_pending_review(self, graph_thread_id: str) -> MedicationReview | None:
         with self._connection() as conn:
             row = conn.execute(
-                "SELECT * FROM medication_reviews WHERE graph_thread_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
+                "SELECT * FROM medication_reviews WHERE graph_thread_id=? AND status='pending' "
+                "ORDER BY created_at DESC LIMIT 1",
                 (graph_thread_id,),
             ).fetchone()
         return self._review(row) if row else None
@@ -259,7 +298,14 @@ class LocalStore:
     def review_graph_thread_id(self, review_id: str) -> str:
         return str(self.get_review_internal(review_id)["graph_thread_id"])
 
-    def decide_review(self, review_id: str, decision: str, reviewer_name: str, note: str | None, guidance: str | None) -> MedicationReview:
+    def decide_review(
+        self,
+        review_id: str,
+        decision: str,
+        reviewer_name: str,
+        note: str | None,
+        guidance: str | None,
+    ) -> MedicationReview:
         review = self.get_review(review_id)
         if review.status != "pending":
             raise ValueError("This review has already been decided.")
@@ -267,7 +313,8 @@ class LocalStore:
             guidance = review.draft_guidance
         with self._connection() as conn:
             conn.execute(
-                "UPDATE medication_reviews SET status=?, reviewer_name=?, reviewer_note=?, approved_guidance=?, updated_at=? WHERE id=?",
+                "UPDATE medication_reviews SET status=?, reviewer_name=?, reviewer_note=?, "
+                "approved_guidance=?, updated_at=? WHERE id=?",
                 (decision, reviewer_name, note, guidance, _now(), review_id),
             )
         return self.get_review(review_id)

@@ -12,11 +12,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
-from druggpt.core.config import Settings, settings
-from druggpt.core.models import ChatResponse, ChatStatus, Evidence, MedicationReview, SourceCitation, ToolActivity
-from druggpt.core.persistence import LocalStore
-from druggpt.rag.guardrails import EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
-from druggpt.rag.retrieval import MedicalRetriever, VectorDatabaseNotReadyError
+from src.core.config import Settings, settings
+from src.core.models import ChatResponse, ChatStatus, Evidence, MedicationReview, SourceCitation, ToolActivity
+from src.core.persistence import LocalStore
+from src.rag.guardrails import EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
+from src.rag.retrieval import MedicalRetriever, VectorDatabaseNotReadyError
 
 GROUNDED_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a helpful medical education assistant.
 Answer the user's question clearly and naturally, using the source excerpts below. Do not diagnose or prescribe.
@@ -141,20 +141,38 @@ class MedicalRAGService:
                 f"[Source {index}: {item.source_title}, page {item.page or 'unknown'}]\n{item.content}"
                 for index, item in enumerate(acceptable, start=1)
             )
-            answer = self._generate(GROUNDED_PROMPT, context=context, patient_context=state["patient_context"], question=state["question"])
+            answer = self._generate(
+                GROUNDED_PROMPT,
+                context=context,
+                patient_context=state["patient_context"],
+                question=state["question"],
+            )
             return {
                 "answer": answer,
                 "status": ChatStatus.ANSWERED.value,
                 "sources": [citation.model_dump() for citation in citations_from_evidence(acceptable)],
-                "tool_activity": ToolActivity(tool_name="search_medical_sources", message="Used local medical sources.", sources_found=len(acceptable)).model_dump(),
+                "tool_activity": ToolActivity(
+                    tool_name="search_medical_sources",
+                    message="Used local medical sources.",
+                    sources_found=len(acceptable),
+                ).model_dump(),
                 "answer_mode": "source_grounded",
             }
-        answer = self._generate(GENERAL_PROMPT, patient_context=state["patient_context"], history=state["history"], question=state["question"])
+        answer = self._generate(
+            GENERAL_PROMPT,
+            patient_context=state["patient_context"],
+            history=state["history"],
+            question=state["question"],
+        )
         return {
             "answer": answer,
             "status": ChatStatus.ANSWERED.value,
             "sources": [],
-            "tool_activity": ToolActivity(tool_name="search_medical_sources", message="No sufficiently relevant local source found; used general educational information.", sources_found=0).model_dump(),
+            "tool_activity": ToolActivity(
+                tool_name="search_medical_sources",
+                message="No sufficiently relevant local source found; used general educational information.",
+                sources_found=0,
+            ).model_dump(),
             "answer_mode": "general_education",
         }
 
@@ -181,8 +199,12 @@ class MedicalRAGService:
                 "review_id": review.id, "review_status": "approved", "answer_mode": "clinician_approved",
             }
         return {
-            "answer": "The clinician reviewer did not approve medication guidance for this request. Please contact a healthcare professional for personalised care.",
-            "status": ChatStatus.SAFETY_REFUSAL.value, "review_id": review.id,
+            "answer": (
+                "The clinician reviewer did not approve medication guidance for this request. "
+                "Please contact a healthcare professional for personalised care."
+            ),
+            "status": ChatStatus.SAFETY_REFUSAL.value,
+            "review_id": review.id,
             "review_status": "rejected", "answer_mode": "clinician_review",
         }
 
@@ -233,13 +255,19 @@ class MedicalRAGService:
         review = self.store.find_pending_review(thread_id)
         if review:
             response = ChatResponse(
-                answer="I’ve prepared this medication-related request for clinician review. You will receive guidance here after it has been approved.",
-                status=ChatStatus.REVIEW_PENDING, thread_id=thread_id, review_id=review.id, review_status="pending",
+                answer="I’ve prepared this medication-related request for clinician review. "
+                "You will receive guidance here after it has been approved.",
+                status=ChatStatus.REVIEW_PENDING,
+                thread_id=thread_id,
+                review_id=review.id,
+                review_status="pending",
                 answer_mode="clinician_review",
             )
         else:
             response = self._response_from_state(result, thread_id)
-        self.store.add_message(conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json"))
+        self.store.add_message(
+            conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
+        )
         return response
 
     def resume_review(self, review: MedicationReview) -> ChatResponse:
@@ -249,7 +277,9 @@ class MedicalRAGService:
             config={"configurable": {"thread_id": thread_id}},
         )
         response = self._response_from_state(result, thread_id)
-        self.store.add_message(review.conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json"))
+        self.store.add_message(
+            review.conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
+        )
         return response
 
     def answer(self, question: str, thread_id: str) -> ChatResponse:

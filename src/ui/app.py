@@ -1,11 +1,11 @@
-"""Patient chat page. Run with: streamlit run src/druggpt/ui/app.py."""
+"""Patient chat page. Run with: python main.py ui (or streamlit run src/ui/app.py)."""
 
 import os
 
 import requests
 import streamlit as st
 
-from druggpt.ui.api_client import DrugGPTApiClient
+from src.ui.api_client import DrugGPTApiClient
 
 st.set_page_config(page_title="DrugGPT Patient Chat", page_icon="💊", layout="wide")
 client = DrugGPTApiClient(os.getenv("DRUGGPT_API_URL", "http://127.0.0.1:8000"))

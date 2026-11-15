@@ -5,7 +5,7 @@ import os
 import requests
 import streamlit as st
 
-from druggpt.ui.api_client import DrugGPTApiClient
+from src.ui.api_client import DrugGPTApiClient
 
 st.set_page_config(page_title="DrugGPT Clinician Review", page_icon="🩺", layout="wide")
 client = DrugGPTApiClient(os.getenv("DRUGGPT_API_URL", "http://127.0.0.1:8000"))
@@ -37,6 +37,12 @@ with st.form("decision"):
         if not reviewer.strip():
             st.error("Enter the clinician reviewer name.")
         else:
-            result = client.decide_review(review["id"], "approved" if approve else "rejected", reviewer.strip(), guidance if approve else None, note or None)
+            result = client.decide_review(
+                review["id"],
+                "approved" if approve else "rejected",
+                reviewer.strip(),
+                guidance if approve else None,
+                note or None,
+            )
             st.success(f"Review complete: {result['status']}")
             st.rerun()

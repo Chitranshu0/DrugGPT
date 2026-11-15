@@ -1,35 +1,122 @@
 from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
-from druggpt.core.config import Settings
-from druggpt.core.models import Evidence
+from src.core.config import Settings
+from src.core.models import (
+    Conversation,
+    ConversationMessage,
+    DatabaseStatus,
+    Evidence,
+    Patient,
+)
+from src.rag.service import MedicalRAGService
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 class FakeRetriever:
-    def __init__(self, evidence=None, ready=True):
+    def __init__(self, evidence=None, ready: bool = True) -> None:
         self.evidence = evidence or []
         self.ready = ready
 
     def search(self, query):
         return self.evidence
 
-    def status(self):
-        from druggpt.core.models import DatabaseStatus
-
-        return DatabaseStatus(ready=self.ready, chunks_indexed=len(self.evidence), documents_indexed=1)
+    def status(self) -> DatabaseStatus:
+        return DatabaseStatus(
+            ready=self.ready,
+            chunks_indexed=len(self.evidence),
+            documents_indexed=1,
+        )
 
 
 class FakeLLM:
+    def __init__(self, content: str = "A sourced educational answer.") -> None:
+        self.content = content
+
     def invoke(self, values):
         class Response:
-            content = "A sourced educational answer."
+            content = self.content
 
         return Response()
 
 
+class FakeStore:
+    """Minimal in-memory store stand-in used by service tests."""
+
+    def __init__(self, patient_id: str = "patient-1") -> None:
+        self.patient_id = patient_id
+        self.messages: dict[str, list[ConversationMessage]] = {}
+        self.reviews: dict[str, object] = {}
+
+    def get_patient(self, patient_id: str) -> Patient:
+        return Patient(
+            id=patient_id,
+            name="Guest patient",
+            date_of_birth=None,
+            sex=None,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+
+    def list_facts(self, patient_id: str, approved_only: bool = False):
+        return []
+
+    def latest_summary(self, patient_id: str):
+        return None
+
+    def get_conversation(self, conversation_id: str) -> Conversation:
+        return Conversation(
+            id=conversation_id,
+            patient_id=self.patient_id,
+            title="New medical chat",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+
+    def ensure_demo_patient(self) -> Patient:
+        return self.get_patient(self.patient_id)
+
+    def ensure_demo_conversation(self, patient_id: str) -> Conversation:
+        return self.get_conversation("conv-1")
+
+    def list_messages(self, conversation_id: str, limit: int | None = None):
+        return self.messages.get(conversation_id, [])
+
+    def add_message(self, conversation_id, role, content, status=None, metadata=None) -> ConversationMessage:
+        msg = ConversationMessage(
+            id=str(uuid4()),
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            status=status,
+            created_at=_now(),
+            metadata=metadata or {},
+        )
+        self.messages.setdefault(conversation_id, []).append(msg)
+        return msg
+
+    def find_pending_review(self, thread_id: str):
+        return None
+
+    def create_or_get_review(self, *args, **kwargs):
+        raise NotImplementedError("not needed for general-answer tests")
+
+    def review_context(self, review_id: str):
+        raise NotImplementedError("not needed for general-answer tests")
+
+    def get_review(self, review_id: str):
+        raise NotImplementedError("not needed for general-answer tests")
+
+
 @pytest.fixture
-def app_settings(tmp_path):
+def app_settings(tmp_path: Path) -> Settings:
     return replace(Settings(), data_dir=tmp_path / "data", relevance_threshold=0.35)
 
 
@@ -44,3 +131,18 @@ def evidence():
             score=0.91,
         )
     ]
+
+
+@pytest.fixture
+def fake_store():
+    return FakeStore()
+
+
+@pytest.fixture
+def service(app_settings, fake_store):
+    return MedicalRAGService(
+        FakeRetriever(),
+        app_settings,
+        llm_factory=FakeLLM,
+        store=fake_store,
+    )

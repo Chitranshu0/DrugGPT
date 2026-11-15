@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI, HTTPException
 
-from druggpt.core.models import (
+from src.core.models import (
     ChatRequest,
     ChatResponse,
     Conversation,
@@ -19,8 +19,8 @@ from druggpt.core.models import (
     PatientUpdate,
     ReviewDecisionRequest,
 )
-from druggpt.rag.indexing import rebuild_index
-from druggpt.rag.service import MedicalRAGService
+from src.rag.indexing import rebuild_index
+from src.rag.service import MedicalRAGService
 
 
 def create_app(service: MedicalRAGService | None = None) -> FastAPI:
@@ -67,7 +67,11 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     @app.get("/patients/{patient_id}/summary", response_model=PatientSummary)
     def patient_summary(patient_id: str) -> PatientSummary:
         patient = get_or_404(lambda: rag_service.store.get_patient(patient_id))
-        return PatientSummary(patient=patient, summary=rag_service.store.latest_summary(patient_id), facts=rag_service.store.list_facts(patient_id))
+        return PatientSummary(
+            patient=patient,
+            summary=rag_service.store.latest_summary(patient_id),
+            facts=rag_service.store.list_facts(patient_id),
+        )
 
     @app.post("/patients/{patient_id}/facts", response_model=PatientFact, status_code=201)
     def add_patient_fact(patient_id: str, request: PatientFactCreate) -> PatientFact:

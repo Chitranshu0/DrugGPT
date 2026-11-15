@@ -6,8 +6,8 @@ import chromadb
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from druggpt.core.config import Settings, settings
-from druggpt.core.models import DatabaseStatus, Evidence
+from src.core.config import Settings, settings
+from src.core.models import DatabaseStatus, Evidence
 
 COLLECTION_NAME = "medical_rag"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
