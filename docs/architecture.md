@@ -95,28 +95,31 @@ pip install -e '.[dev]'
 
 # 2. Configure
 cp .env.example .env
-# edit .env and set GROQ_API_KEY
+# edit .env and set OPENROUTER_API_KEY
 mkdir -p data/raw
 # copy licensed medical PDFs into data/raw/
 
-# 3. Terminal 1: FastAPI backend (:8000)
-python main.py
+# 3. Terminal 1: FastAPI backend (:8000) with auto-reload
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # 4. Terminal 2: Streamlit frontend (:8501)
-python app.py
+streamlit run src/ui/app.py --server.port 8501
 ```
 
-Or use the console scripts after installation:
+Or use the Python launchers and maintenance CLI:
 
 ```bash
-druggpt-api   # FastAPI backend
-druggpt-app   # Streamlit frontend
-druggpt index # rebuild Chroma index from data/raw
-druggpt check # print resolved config + API health
-druggpt test  # run the pytest suite
+python main.py   # FastAPI backend
+python app.py    # Streamlit frontend
+python -m src.cli index # rebuild Chroma index from data/raw
+python -m src.cli check # print resolved config + API health
+python -m src.cli test  # run the pytest suite
 ```
 
-The API is available at `http://127.0.0.1:8000`; the UI at `:8501`. Use the Streamlit sidebar **Rebuild local medical source index** after adding PDFs.
+`uvicorn main:app` resolves the lazy ``app`` exported by ``main.py``; logging is configured
+at import time so request logs appear immediately in that terminal.
+
+The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:8501`. Use the Streamlit sidebar **Rebuild local medical source index** after adding PDFs.
 
 ## Safety and scope
 

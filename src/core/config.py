@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,16 @@ def _project_path(value: str) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
+def setup_logging(level: str = "INFO") -> None:
+    """Configure project-wide logging with a clear, developer-friendly format."""
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings with local, non-source defaults.
@@ -31,8 +42,10 @@ class Settings:
     """
 
     data_dir: Path = field(default_factory=lambda: _project_path(os.getenv("DRUGGPT_DATA_DIR", "data")))
-    groq_api_key: str | None = field(default_factory=lambda: os.getenv("GROQ_API_KEY"))
-    groq_model: str = field(default_factory=lambda: os.getenv("DRUGGPT_MODEL", "openai/gpt-oss-120b"))
+    openrouter_api_key: str | None = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    llm_model: str = field(
+        default_factory=lambda: os.getenv("DRUGGPT_MODEL", "nvidia/nemotron-3.5-lightning:free")
+    )
     relevance_threshold: float = field(
         default_factory=lambda: float(os.getenv("DRUGGPT_RELEVANCE_THRESHOLD", "0.35"))
     )

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Python 3.11+, a Groq API key, and medical PDFs that you are authorized to index.
+Python 3.11+, an OpenRouter API key, and medical PDFs that you are authorized to index.
 
 ## Installation
 
@@ -18,23 +18,41 @@ mkdir -p data/raw
 Put PDFs you are licensed to index in `data/raw`, then start the two services in separate terminals:
 
 ```bash
-# Terminal 1: FastAPI backend (:8000)
-python main.py
+# Terminal 1: FastAPI backend (:8000) with auto-reload
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit frontend (:8501)
-python app.py
+streamlit run src/ui/app.py --server.port 8501
 ```
+
+Open:
+
+| URL | Purpose |
+|-----|---------|
+| `http://127.0.0.1:8000/` | API landing page with links |
+| `http://127.0.0.1:8000/docs` | interactive Swagger UI |
+| `http://127.0.0.1:8000/redoc` | ReDoc reference |
+| `http://127.0.0.1:8000/health` | liveness probe |
+| `http://127.0.0.1:8501` | Streamlit chat UI |
+
+Every request is logged to the backend terminal with a timestamp, level, and logger name
+(`druggpt.api` / `druggpt.rag.service`), so you can follow triage, retrieval, LLM calls, and
+clinician reviews as they happen.
 
 ## Running individual services
 
 | Command | What it does |
 |---------|--------------|
-| `python main.py` | FastAPI backend only (:8000) |
+| `uvicorn main:app --reload` | FastAPI backend only (:8000) |
+| `python main.py` | FastAPI backend via the Python launcher |
 | `python main.py --reload` | Backend with auto-reload |
-| `python app.py` | Streamlit frontend only (:8501) |
-| `druggpt index` | rebuild the Chroma index from `data/raw` |
-| `druggpt check` | print resolved config + API health |
-| `druggpt test` | run the pytest suite |
+| `streamlit run src/ui/app.py` | Streamlit frontend only (:8501) |
+| `python app.py` | Streamlit frontend via the Python launcher |
+| `python -m src.cli index` | rebuild the Chroma index from `data/raw` |
+| `python -m src.cli check` | print resolved config + API health |
+| `python -m src.cli test` | run the pytest suite |
+
+`src/cli.py` is a maintenance helper only; it is not required to run the app.
 
 ## Configuration
 
@@ -43,7 +61,7 @@ Configuration lives in `.env` (untracked) with `.env.example` as the template. P
 **CLI flag > environment variable > `.env` > default**
 
 ```ini
-GROQ_API_KEY=your_groq_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 
 # Local, untracked runtime directory. Place licensed PDFs in data/raw by default.
 DRUGGPT_DATA_DIR=data
@@ -51,7 +69,7 @@ DRUGGPT_API_URL=http://127.0.0.1:8000
 DRUGGPT_API_HOST=127.0.0.1
 DRUGGPT_API_PORT=8000
 DRUGGPT_UI_PORT=8501
-DRUGGPT_MODEL=openai/gpt-oss-120b
+DRUGGPT_MODEL=nvidia/nemotron-3.5-lightning:free
 DRUGGPT_RELEVANCE_THRESHOLD=0.35
 DRUGGPT_RETRIEVAL_K=5
 
@@ -64,16 +82,16 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `GROQ_API_KEY` | (required) | Groq API key for answer generation |
+| `OPENROUTER_API_KEY` | (required) | OpenRouter API key for answer generation |
 | `DRUGGPT_DATA_DIR` | `data` | directory holding `raw/`, `chroma/`, `checkpoints/`, `druggpt.db` |
 | `DRUGGPT_API_HOST` | `127.0.0.1` | API bind host |
 | `DRUGGPT_API_PORT` | `8000` | API bind port |
 | `DRUGGPT_UI_PORT` | `8501` | Streamlit UI port |
-| `DRUGGPT_MODEL` | `openai/gpt-oss-120b` | Groq model name |
+| `DRUGGPT_MODEL` | `nvidia/nemotron-3.5-lightning:free` | OpenRouter model name |
 | `DRUGGPT_RELEVANCE_THRESHOLD` | `0.35` | minimum relevance score for grounded answers (`[0, 1]`) |
 | `DRUGGPT_RETRIEVAL_K` | `5` | number of chunks retrieved (`>= 1`) |
 
-`GROQ_API_KEY` is required for generated answers. `DRUGGPT_DATA_DIR` is resolved relative to the repository root. If the index is unavailable, confirm PDFs are in `data/raw` and rebuild it. If chat generation fails, verify `GROQ_API_KEY` and network access to Groq.
+`OPENROUTER_API_KEY` is required for generated answers. `DRUGGPT_DATA_DIR` is resolved relative to the repository root. If the index is unavailable, confirm PDFs are in `data/raw` and rebuild it. If chat generation fails, verify `OPENROUTER_API_KEY` and network access to OpenRouter.
 
 ## Verification
 

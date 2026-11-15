@@ -1,5 +1,6 @@
 """Chroma retrieval that preserves document provenance."""
 
+import logging
 from pathlib import Path
 
 import chromadb
@@ -11,6 +12,8 @@ from src.core.models import DatabaseStatus, Evidence
 
 COLLECTION_NAME = "medical_rag"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+logger = logging.getLogger("druggpt.rag.retrieval")
 
 
 class VectorDatabaseNotReadyError(RuntimeError):
@@ -26,27 +29,42 @@ class MedicalRetriever:
         self.settings = app_settings
 
     def status(self) -> DatabaseStatus:
-        client = chromadb.PersistentClient(path=str(self.settings.chroma_dir))
         try:
+            client = chromadb.PersistentClient(path=str(self.settings.chroma_dir))
             collection = client.get_collection(COLLECTION_NAME)
+            count = collection.count()
+            metadatas = collection.get(include=["metadatas"])["metadatas"] or []
+            document_count = len({str(metadata.get("source", "")) for metadata in metadatas})
+            return DatabaseStatus(ready=count > 0, chunks_indexed=count, documents_indexed=document_count)
         except chromadb.errors.NotFoundError:
+            logger.info("No Chroma collection found yet at %s", self.settings.chroma_dir)
             return DatabaseStatus(ready=False, chunks_indexed=0, documents_indexed=0)
-        count = collection.count()
-        metadatas = collection.get(include=["metadatas"])["metadatas"] or []
-        document_count = len({str(metadata.get("source", "")) for metadata in metadatas})
-        return DatabaseStatus(ready=count > 0, chunks_indexed=count, documents_indexed=document_count)
+        except Exception as error:  # corrupt store, bad permissions, locked file, …
+            logger.warning(
+                "Vector index at %s is unreadable (%s: %s). "
+                "Chat will fall back to general education until it is rebuilt with "
+                "`python -m src.cli index`.",
+                self.settings.chroma_dir,
+                type(error).__name__,
+                error,
+            )
+            return DatabaseStatus(ready=False, chunks_indexed=0, documents_indexed=0)
 
     def search(self, query: str) -> list[Evidence]:
         if not self.status().ready:
             raise VectorDatabaseNotReadyError(
                 "The medical source index is not ready. Rebuild it before starting a chat."
             )
-        store = Chroma(
-            collection_name=COLLECTION_NAME,
-            persist_directory=str(self.settings.chroma_dir),
-            embedding_function=get_embeddings(),
-        )
-        results = store.similarity_search_with_relevance_scores(query, k=self.settings.retrieval_k)
+        try:
+            store = Chroma(
+                collection_name=COLLECTION_NAME,
+                persist_directory=str(self.settings.chroma_dir),
+                embedding_function=get_embeddings(),
+            )
+            results = store.similarity_search_with_relevance_scores(query, k=self.settings.retrieval_k)
+        except Exception as error:  # a corrupt/locked index must not crash the chat
+            logger.warning("Vector search failed (%s: %s); falling back to general education", type(error).__name__, error)
+            raise VectorDatabaseNotReadyError("The medical source index could not be read.") from error
         evidence: list[Evidence] = []
         for document, score in results:
             metadata = document.metadata
@@ -65,4 +83,5 @@ class MedicalRetriever:
                     score=max(0.0, min(1.0, float(score))),
                 )
             )
+        logger.info("Vector search returned %d chunks", len(evidence))
         return evidence

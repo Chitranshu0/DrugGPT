@@ -1,8 +1,10 @@
 """DrugGPT FastAPI backend entrypoint.
 
-Run:
+Recommended:
+    uvicorn main:app --reload --host 127.0.0.1 --port 8000
+
+Also works:
     python main.py              # start the FastAPI backend (:8000)
-    uvicorn main:app            # alternative (exposes lazy ``app``)
     python main.py --reload     # with auto-reload
     python main.py --port 9000  # custom port
 """
@@ -18,16 +20,22 @@ if str(REPO_ROOT) not in sys.path:
 
 import uvicorn  # noqa: E402
 
+from src.core.config import setup_logging  # noqa: E402
+
+# Configure logging at import time so `uvicorn main:app --reload` (which never
+# calls ``main()``) still gets consistent, readable project logs.
+setup_logging()
+
 
 def _load_app():
-    """Lazily create the FastAPI app so ``--help`` stays fast.
+    """Lazily import the FastAPI app so ``--help`` stays fast.
 
-    The app factory imports heavy ML dependencies (sentence-transformers,
+    The app module imports heavy ML dependencies (sentence-transformers,
     langchain, …) that are unnecessary for argument parsing.
     """
-    from src.api.app import create_app  # noqa: PLC0415
+    from src.api.app import app as fastapi_app  # noqa: PLC0415
 
-    return create_app()
+    return fastapi_app
 
 
 def __getattr__(name: str):
@@ -40,6 +48,7 @@ def __getattr__(name: str):
 def main() -> None:
     from src.core.config import settings  # noqa: PLC0415
 
+    setup_logging()
     parser = argparse.ArgumentParser(prog="main", description="DrugGPT FastAPI backend")
     parser.add_argument("--host", default=settings.api_host, help="Bind host")
     parser.add_argument("--port", type=int, default=settings.api_port, help="Bind port")

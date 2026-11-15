@@ -1,12 +1,13 @@
 """Persistent conversational medical agent with clinician medication review."""
 
+import logging
 import sqlite3
 from collections.abc import Callable
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import StructuredTool
-from langchain_groq import ChatGroq
+from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
@@ -17,6 +18,8 @@ from src.core.models import ChatResponse, ChatStatus, Evidence, MedicationReview
 from src.core.persistence import LocalStore
 from src.rag.guardrails import EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
 from src.rag.retrieval import MedicalRetriever, VectorDatabaseNotReadyError
+
+logger = logging.getLogger("druggpt.rag.service")
 
 GROUNDED_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a helpful medical education assistant.
 Answer the user's question clearly and naturally, using the source excerpts below. Do not diagnose or prescribe.
@@ -104,21 +107,64 @@ class MedicalRAGService:
             description="Search local medical source documents for an educational question.",
         )
         self.graph = self._build_graph()
+        logger.info("MedicalRAGService ready (model=%s, k=%d)", app_settings.llm_model, app_settings.retrieval_k)
 
-    def _default_llm(self) -> ChatGroq:
-        if not self.settings.groq_api_key:
-            raise RuntimeError("GROQ_API_KEY must be configured to generate answers.")
-        return ChatGroq(model=self.settings.groq_model, temperature=0.2, max_tokens=700)
+    def _default_llm(self) -> ChatOpenRouter:
+        if not self.settings.openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY must be configured to generate answers.")
+        logger.debug("Creating ChatOpenRouter client for model %s", self.settings.llm_model)
+        return ChatOpenRouter(
+            model=self.settings.llm_model,
+            api_key=self.settings.openrouter_api_key,
+            temperature=0.2,
+            # Reasoning models spend part of this budget on hidden reasoning;
+            # a low cap can leave the visible answer empty or truncated.
+            max_tokens=1500,
+        )
+
+    def _invoke_llm(self, prompt: ChatPromptTemplate, values: dict[str, str]) -> str:
+        llm = self.llm_factory()
+        response = llm.invoke(prompt.invoke(values))
+        text = str(response.content)
+        if text.strip():
+            return text
+        # Some reasoning models return empty content when reasoning consumes the
+        # whole token budget. Retry once with a larger budget before giving up.
+        logger.warning("LLM returned empty content; retrying with a larger token budget")
+        if hasattr(llm, "max_tokens"):
+            try:
+                llm.max_tokens = max(llm.max_tokens or 0, 1500) * 2
+            except Exception:  # pragma: no cover - defensive for custom clients
+                pass
+        response = llm.invoke(prompt.invoke(values))
+        text = str(response.content)
+        if not text.strip():
+            raise RuntimeError("The language model returned an empty response. Please try again.")
+        return text
 
     def _generate(self, prompt: ChatPromptTemplate, **values: str) -> str:
-        response = self.llm_factory().invoke(prompt.invoke(values))
-        return str(response.content)
+        logger.debug("Calling LLM (%s)", self.settings.llm_model)
+        try:
+            text = self._invoke_llm(prompt, values)
+        except RuntimeError:
+            raise
+        except Exception as error:  # surface upstream failures as a graceful 503
+            logger.exception("LLM call failed: %s", error)
+            raise RuntimeError(
+                f"The language model is unavailable right now ({type(error).__name__}). "
+                "Please try again shortly."
+            ) from error
+        logger.debug("LLM response received (%d chars)", len(text))
+        return text
 
     def search_medical_sources(self, query: str) -> list[Evidence]:
+        logger.debug("Searching medical sources for %r", query[:80])
         return self.retriever.search(query)
 
     def _triage_node(self, state: AgentState) -> AgentState:
-        return {"triage": triage_query(state["question"]).value}
+        triage = triage_query(state["question"]).value
+        logger.info("Triage result: %s", triage)
+        return {"triage": triage}
 
     def _load_context_node(self, state: AgentState) -> AgentState:
         patient = self.store.get_patient(state["patient_id"])
@@ -134,8 +180,14 @@ class MedicalRAGService:
         try:
             evidence = self._search_tool.invoke({"query": state["question"]})
         except VectorDatabaseNotReadyError:
-            pass
+            logger.warning("Vector index not ready; answering from general education")
         acceptable = [item for item in evidence if item.score >= self.settings.relevance_threshold]
+        logger.info(
+            "Evidence retrieved=%d, above threshold (%.2f)=%d",
+            len(evidence),
+            self.settings.relevance_threshold,
+            len(acceptable),
+        )
         if acceptable:
             context = "\n\n".join(
                 f"[Source {index}: {item.source_title}, page {item.page or 'unknown'}]\n{item.content}"
@@ -164,6 +216,7 @@ class MedicalRAGService:
             history=state["history"],
             question=state["question"],
         )
+        logger.info("No relevant local sources; answered with general education")
         return {
             "answer": answer,
             "status": ChatStatus.ANSWERED.value,
@@ -188,6 +241,7 @@ class MedicalRAGService:
             state["patient_id"], state["conversation_id"], state["message_id"], state["thread_id"], draft,
             {"patient_context": state["patient_context"], "question": state["question"], "history": state["history"]},
         )
+        logger.info("Medication review %s created for conversation %s", review.id, state["conversation_id"])
         decision = interrupt({
             "type": "medication_review", "review_id": review.id, "patient_id": review.patient_id,
             "conversation_id": review.conversation_id, "draft_guidance": review.draft_guidance,
@@ -244,6 +298,7 @@ class MedicalRAGService:
         )
 
     def send_message(self, conversation_id: str, message: str) -> ChatResponse:
+        logger.info("Processing message for conversation %s (chars=%d)", conversation_id, len(message))
         conversation = self.store.get_conversation(conversation_id)
         user_message = self.store.add_message(conversation_id, "user", message)
         thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
@@ -254,6 +309,7 @@ class MedicalRAGService:
         )
         review = self.store.find_pending_review(thread_id)
         if review:
+            logger.info("Message %s routed to clinician review %s", user_message.id, review.id)
             response = ChatResponse(
                 answer="I’ve prepared this medication-related request for clinician review. "
                 "You will receive guidance here after it has been approved.",
@@ -268,9 +324,13 @@ class MedicalRAGService:
         self.store.add_message(
             conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
+        logger.info(
+            "Message %s answered (status=%s, mode=%s)", user_message.id, response.status.value, response.answer_mode
+        )
         return response
 
     def resume_review(self, review: MedicationReview) -> ChatResponse:
+        logger.info("Resuming graph for review %s (%s)", review.id, review.status)
         thread_id = self.store.review_graph_thread_id(review.id)
         result = self.graph.invoke(
             Command(resume={"decision": review.status, "approved_guidance": review.approved_guidance or ""}),
@@ -280,6 +340,7 @@ class MedicalRAGService:
         self.store.add_message(
             review.conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
+        logger.info("Review %s resumed with status=%s", review.id, response.status.value)
         return response
 
     def answer(self, question: str, thread_id: str) -> ChatResponse:

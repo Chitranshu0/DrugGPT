@@ -15,12 +15,12 @@ def test_settings_read_env_and_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("DRUGGPT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DRUGGPT_RELEVANCE_THRESHOLD", "0.7")
     monkeypatch.setenv("DRUGGPT_RETRIEVAL_K", "8")
-    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     settings = Settings.from_env()
     assert settings.data_dir == tmp_path / "data"
     assert settings.relevance_threshold == 0.7
     assert settings.retrieval_k == 8
-    assert settings.groq_api_key == "test-key"
+    assert settings.openrouter_api_key == "test-key"
 
 
 def test_defaults_when_env_missing(monkeypatch):
@@ -32,12 +32,12 @@ def test_defaults_when_env_missing(monkeypatch):
         "DRUGGPT_API_HOST",
         "DRUGGPT_API_PORT",
         "DRUGGPT_UI_PORT",
-        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(var, raising=False)
     settings = Settings.from_env()
-    assert settings.groq_api_key is None
-    assert settings.groq_model == "openai/gpt-oss-120b"
+    assert settings.openrouter_api_key is None
+    assert settings.llm_model == "nvidia/nemotron-3.5-lightning:free"
     assert settings.relevance_threshold == 0.35
     assert settings.retrieval_k == 5
     assert settings.api_host == "127.0.0.1"
@@ -62,7 +62,7 @@ def test_replace_keeps_settings_dataclass_semantics(tmp_path):
     override = replace(base, data_dir=tmp_path / "data", relevance_threshold=0.9)
     assert override.data_dir == tmp_path / "data"
     assert override.relevance_threshold == 0.9
-    assert override.groq_api_key == base.groq_api_key
+    assert override.openrouter_api_key == base.openrouter_api_key
 
 
 def test_ensure_directories_creates_runtime_dirs(tmp_path, monkeypatch):

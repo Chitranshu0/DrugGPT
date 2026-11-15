@@ -2,6 +2,29 @@
 
 Base URL: `http://127.0.0.1:8000` (configured by `DRUGGPT_API_HOST` / `DRUGGPT_API_PORT`).
 
+Interactive docs: **`/docs`** (Swagger UI) and **`/redoc`** (ReDoc). Endpoints are grouped by tag:
+**Meta**, **Index**, **Patients**, **Chat**, **Reviews**.
+
+## `GET /`
+
+Landing page with links to the docs and key endpoints.
+
+```json
+{"service": "DrugGPT API", "version": "3.0.0", "status": "running", "docs": "/docs", "health": "/health"}
+```
+
+## Error handling
+
+| Status | Meaning |
+|--------|---------|
+| `404` | Patient, conversation, or review id not found |
+| `409` | Invalid review decision (e.g. approval without guidance) |
+| `503` | The language model or index is unavailable |
+| `500` | Unexpected server error; a traceback is written to the backend log |
+
+Unexpected failures never leak a raw traceback to the client — the response is
+`{"detail": "..."}` and the full traceback is logged under `druggpt.api`.
+
 ## `GET /health`
 
 Returns API status.

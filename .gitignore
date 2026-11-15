@@ -6,6 +6,7 @@ RAG_pipeline/chroma_db/
 RAG_pipeline/Medical Books/
 data/raw/
 data/chroma/
+data/chroma.corrupt-*/
 data/checkpoints/
 
 # Byte-compiled / optimized / DLL files

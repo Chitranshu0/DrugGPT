@@ -13,7 +13,7 @@ pytest
 ruff check .
 ```
 
-Tests use fake retrievers, an in-memory store, and an LLM stub, so they do not need a Groq key, a network connection, or the private PDF corpus. Add behavioral tests alongside changes to guardrails, response schemas, indexing, and UI client calls. Keep runtime data out of commits and use typed models at application boundaries.
+Tests use fake retrievers, an in-memory store, and an LLM stub, so they do not need an OpenRouter key, a network connection, or the private PDF corpus. Add behavioral tests alongside changes to guardrails, response schemas, indexing, and UI client calls. Keep runtime data out of commits and use typed models at application boundaries.
 
 ## Project layout
 
@@ -22,11 +22,24 @@ src/             # importable as src.* (package root)
 tests/           # pytest suite
 data/            # runtime data (ignored by Git)
 docs/            # this documentation
-main.py          # FastAPI backend entrypoint (`python main.py`)
-app.py           # Streamlit frontend entrypoint (`python app.py`)
+main.py          # FastAPI backend entrypoint (`uvicorn main:app` / `python main.py`)
+app.py           # Streamlit frontend launcher (`python app.py`)
 pyproject.toml   # packaging, pytest, ruff, coverage configuration
 .env             # runtime secrets (untracked)
 ```
+
+## Logging
+
+`src/core/config.py` exposes `setup_logging()`, which configures one consistent format:
+
+```text
+2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage result: general
+```
+
+`main.py` calls it at import time so `uvicorn main:app --reload` logs immediately. Use the
+module loggers `druggpt.api` and `druggpt.rag.service` when adding code; call
+`logger.exception(...)` inside `except` blocks so the traceback reaches the terminal while the
+client receives a clean JSON error.
 
 ## Adding a new command
 
