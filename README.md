@@ -51,4 +51,5 @@ DrugGPT answers medical science and drug-study questions only. It declines unrel
 - [RAG and source-data workflow](docs/rag-and-data.md)
 - [Safety and scope](docs/safety-and-scope.md)
 - [Development guide](docs/development.md)
+- [Detailed project reference](docs/project-reference.md)
 - [Architecture decision records](docs/adr/0001-local-chroma-source-grounded-rag.md)
