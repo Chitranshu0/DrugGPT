@@ -1,6 +1,6 @@
 # DrugGPT
 
-DrugGPT is a source-grounded assistant for **medical science and drug-study research**. It automatically searches locally indexed medical PDFs, answers only when relevant evidence is found, and displays the supporting source and page for every answer.
+DrugGPT is a source-grounded assistant for **medical science and drug-study research**. It automatically searches locally indexed medical PDFs, prefers source-grounded answers when relevant evidence is found, and falls back to general educational information otherwise. It displays the supporting source and page for every grounded answer.
 
 It is designed for students and researchers. It is not a diagnostic, prescribing, or emergency-care service.
 
@@ -53,7 +53,7 @@ There is no `python main.py` or `python app.py`; run uvicorn and Streamlit direc
 
 ## Safety and limitations
 
-DrugGPT answers medical science and drug-study questions only. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. If no indexed source sufficiently supports a question, it asks for a narrower rephrase rather than inventing an answer. Verify research conclusions against the original materials and qualified professionals.
+DrugGPT answers medical science and drug-study questions only. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. If no indexed source sufficiently supports a question, it provides general educational information rather than inventing an answer. Verify research conclusions against the original materials and qualified professionals.
 
 ## Documentation
 

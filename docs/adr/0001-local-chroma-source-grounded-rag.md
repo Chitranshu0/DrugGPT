@@ -1,8 +1,8 @@
-# ADR 0001: Local ChromaDB with source-required answers
+# ADR 0001: Local ChromaDB with source-grounded answers
 
 ## Decision
 
-DrugGPT uses a persistent local ChromaDB collection for its initial deployment and generates answers only when retrieved source chunks meet a relevance threshold.
+DrugGPT uses a persistent local ChromaDB collection for its initial deployment and prefers source-grounded answers when retrieved chunks meet a relevance threshold; otherwise it falls back to general educational information.
 
 ## Rationale
 

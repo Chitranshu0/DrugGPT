@@ -4,7 +4,7 @@ DrugGPT answers medical science and drug-study questions only. It is designed fo
 
 ## What DrugGPT does
 
-- Searches locally indexed medical PDFs and answers only when relevant evidence is found.
+- Searches locally indexed medical PDFs and prefers source-grounded answers; when no relevant evidence is found, it falls back to general educational information.
 - Displays the supporting source and page for every grounded answer.
 - Declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations.
 - Routes medication-related requests through a clinician review step before returning guidance.
