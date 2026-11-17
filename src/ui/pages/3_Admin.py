@@ -10,6 +10,10 @@ for _parent in Path(__file__).resolve().parents:
         sys.path.insert(0, str(_parent))
         break
 
+from src.core.runtime import configure_runtime  # noqa: E402
+
+configure_runtime()
+
 import requests  # noqa: E402
 import streamlit as st  # noqa: E402
 

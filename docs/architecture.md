@@ -29,7 +29,7 @@ flowchart TD
     T -->|educational / symptom question| C
     T -->|personal health decision| C
 
-    C -->|unclear| Q[clarify node<br/>one short follow-up question]
+    C -->|unclear| Q[clarify node<br/>fixed reviewed question, no LLM]
     C -->|educational / symptom| R{Chroma RAG has<br/>relevant chunks?}
     R -->|yes| A[answer node<br/>source-grounded + citations]
     R -->|no| G[answer node<br/>general education]
@@ -49,6 +49,8 @@ flowchart TD
     HR --> RES
     HC --> RES
     RES --> UI[Streamlit renders answer,<br/>status, and source cards]
+    API -.->|optional /messages/stream| ST[SSE token events<br/>then terminal ChatResponse]
+    ST --> UI
 
     style E fill:#ffcccb,stroke:#333
     style HR fill:#ffcccb,stroke:#333
@@ -70,8 +72,8 @@ flowchart TD
 5. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
 6. **The graph picks one response path**:
    - **Emergency / out-of-scope** → immediate fixed guidance.
-   - **Unclear** → the `clarify` node asks one short follow-up question using a system prompt; no retrieval, no medical advice.
-   - **General / symptom** → the `answer` node searches Chroma. Chunks above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history.
+   - **Unclear** → the `clarify` node returns a fixed, reviewed follow-up question with no LLM call (opt in with `DRUGGPT_LLM_CLARIFY=1` for a prompt-generated one); no retrieval, no medical advice.
+   - **General / symptom** → the `answer` node searches Chroma in cosine space. Chunks whose clamped cosine similarity is at or above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history. `POST /conversations/{id}/messages/stream` streams this answer as SSE tokens before returning the same stored `ChatResponse`.
    - **Personal health decision** → the `clinician_review` node drafts internal guidance, saves a review row, and pauses with `interrupt()`.
 7. **A clinician resolves the hold** — through `POST /reviews/{id}/decision` (approve/reject) or `POST /conversations/{id}/clinician-reply` (free text). The graph thread is resumed with `Command(resume=...)`, keyed by the stored `graph_thread_id`.
 8. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. Streamlit renders the right caption for each mode.
@@ -108,6 +110,7 @@ DrugGPT/
 │   ├── api/app.py              # FastAPI application
 │   ├── core/
 │   │   ├── config.py           # Settings (env/.env, validation, directories)
+│   │   ├── runtime.py          # no-TensorFlow shims (import first in entrypoints)
 │   │   ├── models.py           # typed request/response/domain models
 │   │   └── persistence.py      # SQLite store (patients, conversations, reviews)
 │   ├── rag/
@@ -136,6 +139,7 @@ DrugGPT/
 | `src.rag.service` | LangGraph nodes, edges, prompts, and response mapping |
 | `src.rag.indexing` / `src.rag.retrieval` | PDF chunking and Chroma-backed evidence |
 | `src.ui` | Streamlit application and testable HTTP client |
+| `src.core.runtime` | TensorFlow-disable shims and warning filters applied before heavy imports |
 | `src.cli` | Maintenance commands (`index`, `check`, `test`) |
 
 ## Two kinds of human-in-the-loop behavior

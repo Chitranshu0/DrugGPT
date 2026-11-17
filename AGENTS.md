@@ -11,7 +11,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - Frontend :8501: `streamlit run src/ui/Patient_Chat.py --server.port 8501`
 - Maintenance: `python -m src.cli index|check|test` (prefer `python -m src.cli`;
   `druggpt` only works after an editable install in the active env)
-- Tests: `pytest` (offline, ~30 tests); single test:
+- Tests: `pytest` (offline, ~65 tests); single test:
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
 - Lint: `ruff check .` (line length 128, py311, rules E/F/I/UP). No CI or pre-commit;
   run lint + tests manually.
@@ -25,6 +25,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - `src/rag/indexing.py`: rebuilds Chroma collection `medical_rag` from non-recursive
   `data/raw/*.pdf` (1000/150 chunks, `all-MiniLM-L6-v2`); `retrieval.py` returns `Evidence`.
 - `src/core/persistence.py`: SQLite `LocalStore`; `src/core/models.py`: Pydantic API models.
+- `src/core/runtime.py`: `configure_runtime()` disables TensorFlow before heavy imports; call it first in every entrypoint.
 - Streamlit pages read `DRUGGPT_API_URL` at import; each page uses `get_client()` from
   `src.ui.api_client`. Each entrypoint also adds the repo root to `sys.path`, so direct
   `streamlit run` works without an editable install.
@@ -32,7 +33,16 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 ## Non-obvious behavior
 - No index, or no chunk >= `DRUGGPT_RELEVANCE_THRESHOLD`, still returns HTTP 200 with
   `answer_mode="general_education"`. It does not refuse or 503. Only LLM/config failures
-  return 503. README/ADR wording about "answers only when evidence is found" is stale.
+  return 503. README/ADR wording already reflects this (the old "answers only when evidence
+  is found" wording was stale).
+- Chroma uses **cosine space** with normalized embeddings and `schema_version=2`. Scores are
+  `clamp(1 - cosine_distance, 0, 1)`. Older L2 indexes report `needs_rebuild=true` and must be
+  recreated with `python -m src.cli index`; until then answers have no citations.
+- `MedicalRetriever` caches the embedder, Chroma client and store; `rebuild_index()` calls
+  `invalidate_caches()`. Keep that pairing intact or rebuilt indexes will be shadowed.
+- Clarifications are deterministic (no LLM call) unless `DRUGGPT_LLM_CLARIFY=1`.
+- `/v1/models` is an OpenAI-compatible shim for external probes; nothing in this repo calls it.
+- `Settings.validate()` blocks non-loopback binds unless `DRUGGPT_ALLOW_REMOTE=1` (no auth).
 - Medication requests use LangGraph `interrupt()`; the review row is saved before the
   interrupt and resumed with `Command(resume=...)` keyed by the stored `graph_thread_id`.
   Keep that pairing intact.

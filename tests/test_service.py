@@ -116,6 +116,50 @@ def test_unclear_message_asks_follow_up_without_rag(app_settings):
     assert retriever.calls == 0
 
 
+def test_clarification_is_deterministic_and_does_not_call_llm(app_settings):
+    created = []
+
+    class _Factory:
+        def __call__(self):
+            created.append(1)
+            return FakeLLM()
+
+    service = MedicalRAGService(FakeRetriever(), app_settings, llm_factory=_Factory, store=FakeStore())
+    response = service.send_message("conv-1", "hi")
+    assert response.answer_mode == "clarification"
+    assert created == []
+
+
+class _StreamLLM(FakeLLM):
+    def stream(self, values):
+        for part in ("Aspirin ", "inhibits ", "platelets."):
+            yield type("Chunk", (), {"content": part})()
+
+
+def test_stream_emits_tokens_then_answer_response(app_settings, evidence, fake_store):
+    service = MedicalRAGService(
+        FakeRetriever(evidence), app_settings, llm_factory=_StreamLLM, store=fake_store
+    )
+    events = list(service.send_message_stream("conv-1", "Explain aspirin pharmacology"))
+    tokens = [event["token"] for event in events if event["type"] == "token"]
+    terminal = [event for event in events if event["type"] == "response"]
+    assert "".join(tokens) == "Aspirin inhibits platelets."
+    assert len(terminal) == 1
+    assert terminal[0]["response"]["answer_mode"] == "source_grounded"
+    assert terminal[0]["response"]["sources"][0]["page"] == 42
+    roles = [message.role for message in fake_store.messages["conv-1"]]
+    assert roles == ["user", "assistant"]
+
+
+def test_stream_non_answer_route_reuses_guardrail_response(app_settings):
+    service = MedicalRAGService(
+        FakeRetriever(), app_settings, llm_factory=_StreamLLM, store=_ReviewStore()
+    )
+    events = list(service.send_message_stream("conv-1", "What medicine should I take?"))
+    assert [event["type"] for event in events] == ["response"]
+    assert events[0]["response"]["answer_mode"] == "clinician_review"
+
+
 @pytest.mark.parametrize(
     "message",
     [

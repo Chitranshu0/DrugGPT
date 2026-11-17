@@ -155,3 +155,7 @@ class DatabaseStatus(BaseModel):
     ready: bool
     chunks_indexed: int
     documents_indexed: int = 0
+    schema_version: int | None = None
+    distance_metric: str | None = None
+    needs_rebuild: bool = False
+    message: str | None = None

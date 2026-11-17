@@ -6,7 +6,12 @@ request arrives. There is no ``python main.py`` entrypoint; run uvicorn directly
 """
 from __future__ import annotations
 
-from src.core.config import setup_logging
+from src.core.runtime import configure_runtime
+
+# Must run before config/app imports: it disables TensorFlow in transformers.
+configure_runtime()
+
+from src.core.config import setup_logging  # noqa: E402
 
 # Configure logging at import time so `uvicorn main:app --reload` (which never
 # calls a ``main()``) still gets consistent, readable project logs.

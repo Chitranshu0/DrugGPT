@@ -39,12 +39,21 @@ class FakeRetriever:
 class FakeLLM:
     def __init__(self, content: str = "A sourced educational answer.") -> None:
         self.content = content
+        self.calls = 0
 
     def invoke(self, values):
+        self.calls += 1
+
         class Response:
             content = self.content
 
         return Response()
+
+    def stream(self, values):
+        self.calls += 1
+        for part in (self.content[:10], self.content[10:]):
+            if part:
+                yield type("Chunk", (), {"content": part})()
 
 
 class FakeStore:

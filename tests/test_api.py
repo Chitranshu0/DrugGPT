@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
@@ -12,6 +14,26 @@ def test_health_returns_status_and_mode(app_settings):
     body = client.get("/health").json()
     assert body["status"] == "running"
     assert body["mode"] == "local-development-only"
+
+
+def test_models_shim_returns_configured_model(app_settings):
+    app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM))
+    body = TestClient(app).get("/v1/models").json()
+    assert body["object"] == "list"
+    assert body["data"][0]["id"] == app_settings.llm_model
+
+
+def test_messages_since_returns_only_new_messages(app_settings, fake_store):
+    fake_store.add_message("conv-1", "user", "First")
+    second = fake_store.add_message("conv-1", "assistant", "Second")
+    app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=fake_store))
+    client = TestClient(app)
+
+    body = client.get("/conversations/conv-1/messages/since", params={"after": second.id}).json()
+    assert body["messages"] == []
+    assert body["version"] == 2
+    all_messages = client.get("/conversations/conv-1/messages/since").json()
+    assert len(all_messages["messages"]) == 2
 
 
 def test_vector_db_status_ready(app_settings, evidence):
@@ -93,3 +115,29 @@ def test_clinician_reply_endpoint(app_settings):
     assert store.decided is not None
     assert store.decided["decision"] == "approved"
     assert store.decided["guidance"] == "Take it with food."
+
+
+def test_stream_endpoint_sends_sse_token_and_response_events(app_settings, evidence, fake_store):
+    class StreamLLM(FakeLLM):
+        def stream(self, values):
+            for part in ("Aspirin ", "inhibits platelets."):
+                yield type("Chunk", (), {"content": part})()
+
+    app = create_app(
+        MedicalRAGService(FakeRetriever(evidence), app_settings, llm_factory=StreamLLM, store=fake_store)
+    )
+    response = TestClient(app).post(
+        "/conversations/conv-1/messages/stream", json={"message": "Explain aspirin pharmacology"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    payloads = [
+        line.removeprefix("data: ")
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    events = [json.loads(payload) for payload in payloads]
+    assert events[0]["type"] == "token"
+    assert events[-1]["type"] == "response"
+    assert events[-1]["response"]["answer_mode"] == "source_grounded"
+

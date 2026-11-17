@@ -6,10 +6,11 @@ documented so the interactive Swagger UI at ``/docs`` reads like a real
 developer console instead of a bare endpoint list.
 """
 
+import json
 import logging
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.core.models import (
     ChatRequest,
@@ -143,6 +144,15 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         """Return a constant payload while the process is accepting requests."""
         return {"status": "running", "mode": "local-development-only"}
 
+    @app.get("/v1/models", tags=["Meta"], include_in_schema=False, summary="OpenAI-compatible model discovery")
+    def models() -> dict[str, object]:
+        """Minimal shim for external OpenAI-compatible probes (no code in this repo calls it)."""
+        logger.debug("Model discovery probe answered for %s", rag_service.settings.llm_model)
+        return {
+            "object": "list",
+            "data": [{"id": rag_service.settings.llm_model, "object": "model", "owned_by": "openrouter"}],
+        }
+
     @app.get(
         "/vector-db/status",
         response_model=DatabaseStatus,
@@ -159,7 +169,7 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         summary="Rebuild the vector index from data/raw",
         description="Re-ingests every PDF in `data/raw` and replaces the local Chroma index.",
     )
-    def rebuild_vector_database() -> dict[str, int | str]:
+    def rebuild_vector_database() -> dict[str, object]:
         logger.info(
             "Rebuilding vector index from PDFs in %s (this replaces the existing collection)",
             rag_service.settings.raw_documents_dir,
@@ -274,6 +284,23 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     def list_messages(conversation_id: str) -> list[ConversationMessage]:
         return get_or_404(lambda: rag_service.store.list_messages(conversation_id))
 
+    @app.get(
+        "/conversations/{conversation_id}/messages/since",
+        tags=["Chat"],
+        summary="List only messages added after a given message id",
+    )
+    def list_messages_since(conversation_id: str, after: str | None = None) -> dict[str, object]:
+        """Cheap polling payload for the Streamlit transcript fragment."""
+        messages = get_or_404(lambda: rag_service.store.list_messages(conversation_id))
+        if after:
+            positions = [index for index, message in enumerate(messages) if message.id == after]
+            if positions:
+                messages = messages[positions[-1] + 1 :]
+        return {
+            "messages": [message.model_dump(mode="json") for message in messages],
+            "version": len(rag_service.store.list_messages(conversation_id)),
+        }
+
     @app.post(
         "/conversations/{conversation_id}/messages",
         response_model=ChatResponse,
@@ -312,6 +339,34 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
             response.answer_mode,
         )
         return response
+
+    @app.post(
+        "/conversations/{conversation_id}/messages/stream",
+        tags=["Chat"],
+        summary="Send a chat message and stream the answer as server-sent events",
+        description=(
+            "Emits `{\"type\": \"token\", \"token\": \"...\"}` events followed by one "
+            "`{\"type\": \"response\", \"response\": {...}}` event carrying the same "
+            "`ChatResponse` as the non-stream endpoint. Guardrail and clinician-review "
+            "routes emit only the terminal response event."
+        ),
+    )
+    def send_message_stream(conversation_id: str, request: MessageRequest) -> StreamingResponse:
+        def events():
+            try:
+                for event in rag_service.send_message_stream(conversation_id, request.message):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except KeyError as error:
+                logger.warning("Cannot stream message: conversation %s does not exist", conversation_id)
+                yield f"data: {json.dumps({'type': 'error', 'detail': str(error)})}\n\n"
+            except RuntimeError as error:
+                logger.error("Streaming generation failed for conversation %s (%s)", conversation_id, error)
+                yield f"data: {json.dumps({'type': 'error', 'detail': str(error), 'status': 503})}\n\n"
+            except Exception:  # safety net
+                logger.exception("Unexpected error streaming conversation %s", conversation_id)
+                yield f"data: {json.dumps({'type': 'error', 'detail': 'Internal server error.'})}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
 
     @app.get("/reviews", response_model=list[MedicationReview], tags=["Reviews"], summary="List reviews")
     def list_reviews(status: str = "pending") -> list[MedicationReview]:

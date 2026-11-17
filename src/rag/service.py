@@ -2,7 +2,8 @@
 
 import logging
 import sqlite3
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
 from typing import Any
 from uuid import uuid4
 
@@ -17,7 +18,14 @@ from typing_extensions import TypedDict
 from src.core.config import Settings, settings
 from src.core.models import ChatResponse, ChatStatus, Evidence, MedicationReview, SourceCitation, ToolActivity
 from src.core.persistence import LocalStore
-from src.rag.guardrails import CLINICIAN_REVIEW_TRIAGE, EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
+from src.rag.guardrails import (
+    CLARIFY_MESSAGE,
+    CLINICIAN_REVIEW_TRIAGE,
+    EMERGENCY_MESSAGE,
+    OUT_OF_SCOPE_MESSAGE,
+    Triage,
+    triage_query,
+)
 from src.rag.retrieval import MedicalRetriever, VectorDatabaseNotReadyError
 
 logger = logging.getLogger("druggpt.rag.service")
@@ -172,6 +180,7 @@ class MedicalRAGService:
 
     def _generate(self, prompt: ChatPromptTemplate, **values: str) -> str:
         logger.debug("Calling LLM (%s)", self.settings.llm_model)
+        started = time.perf_counter()
         try:
             text = self._invoke_llm(prompt, values)
         except RuntimeError:
@@ -187,7 +196,7 @@ class MedicalRAGService:
                 f"The language model is unavailable right now ({type(error).__name__}). "
                 "Please try again shortly."
             ) from error
-        logger.debug("LLM response received (%d chars)", len(text))
+        logger.info("LLM call completed in %d ms (%d chars)", int((time.perf_counter() - started) * 1000), len(text))
         return text
 
     def search_medical_sources(self, query: str) -> list[Evidence]:
@@ -208,15 +217,21 @@ class MedicalRAGService:
         history = "\n".join(f"{message.role}: {message.content}" for message in messages) or "No earlier messages."
         return {"patient_context": f"Patient: {patient.name}. Summary: {summary}. Facts: {facts_text}", "history": history}
 
-    def _general_answer_node(self, state: AgentState) -> AgentState:
+    def _prepare_general_answer(
+        self, state: AgentState
+    ) -> tuple[ChatPromptTemplate, dict[str, str], list[dict[str, Any]], dict[str, Any], str]:
+        """Search, filter and pick a prompt. Shared by the graph and streaming paths."""
         evidence: list[Evidence] = []
+        search_started = time.perf_counter()
         try:
             evidence = self._search_tool.invoke({"query": state["question"]})
         except VectorDatabaseNotReadyError:
             logger.warning("Vector index not ready; answering from general education")
+        search_ms = int((time.perf_counter() - search_started) * 1000)
         acceptable = [item for item in evidence if item.score >= self.settings.relevance_threshold]
         logger.info(
-            "Evidence search: %d chunks retrieved, %d met relevance threshold %.2f -> %s",
+            "Evidence search completed in %d ms: %d chunks, %d met relevance threshold %.2f -> %s",
+            search_ms,
             len(evidence),
             len(acceptable),
             self.settings.relevance_threshold,
@@ -227,40 +242,48 @@ class MedicalRAGService:
                 f"[Source {index}: {item.source_title}, page {item.page or 'unknown'}]\n{item.content}"
                 for index, item in enumerate(acceptable, start=1)
             )
-            answer = self._generate(
+            return (
                 GROUNDED_PROMPT,
-                context=context,
-                patient_context=state["patient_context"],
-                question=state["question"],
-            )
-            return {
-                "answer": answer,
-                "status": ChatStatus.ANSWERED.value,
-                "sources": [citation.model_dump() for citation in citations_from_evidence(acceptable)],
-                "tool_activity": ToolActivity(
+                {
+                    "context": context,
+                    "patient_context": state["patient_context"],
+                    "question": state["question"],
+                },
+                [citation.model_dump() for citation in citations_from_evidence(acceptable)],
+                ToolActivity(
                     tool_name="search_medical_sources",
                     message="Used local medical sources.",
                     sources_found=len(acceptable),
                 ).model_dump(),
-                "answer_mode": "source_grounded",
-            }
-        answer = self._generate(
+                "source_grounded",
+            )
+        return (
             GENERAL_PROMPT,
-            patient_context=state["patient_context"],
-            history=state["history"],
-            question=state["question"],
-        )
-        logger.info("No local source met the threshold - answered from general education without citations")
-        return {
-            "answer": answer,
-            "status": ChatStatus.ANSWERED.value,
-            "sources": [],
-            "tool_activity": ToolActivity(
+            {
+                "patient_context": state["patient_context"],
+                "history": state["history"],
+                "question": state["question"],
+            },
+            [],
+            ToolActivity(
                 tool_name="search_medical_sources",
                 message="No sufficiently relevant local source found; used general educational information.",
                 sources_found=0,
             ).model_dump(),
-            "answer_mode": "general_education",
+            "general_education",
+        )
+
+    def _general_answer_node(self, state: AgentState) -> AgentState:
+        prompt, values, sources, tool_activity, answer_mode = self._prepare_general_answer(state)
+        answer = self._generate(prompt, **values)
+        if answer_mode == "general_education":
+            logger.info("No local source met the threshold - answered from general education without citations")
+        return {
+            "answer": answer,
+            "status": ChatStatus.ANSWERED.value,
+            "sources": sources,
+            "tool_activity": tool_activity,
+            "answer_mode": answer_mode,
         }
 
     def _emergency_node(self, state: AgentState) -> AgentState:
@@ -270,12 +293,17 @@ class MedicalRAGService:
         return {"answer": OUT_OF_SCOPE_MESSAGE, "status": ChatStatus.OUT_OF_SCOPE.value, "answer_mode": "scope_notice"}
 
     def _clarify_node(self, state: AgentState) -> AgentState:
-        question = self._generate(
-            CLARIFY_PROMPT,
-            patient_context=state["patient_context"],
-            history=state["history"],
-            message=state["question"],
-        )
+        # Deterministic by default: the vague-message path already has a fixed,
+        # reviewed response. Skip the LLM (~11 s) unless explicitly opted in.
+        if self.settings.llm_clarify:
+            question = self._generate(
+                CLARIFY_PROMPT,
+                patient_context=state["patient_context"],
+                history=state["history"],
+                message=state["question"],
+            )
+        else:
+            question = CLARIFY_MESSAGE
         return {
             "answer": question,
             "status": ChatStatus.NEEDS_MORE_INFORMATION.value,
@@ -358,6 +386,7 @@ class MedicalRAGService:
         )
 
     def send_message(self, conversation_id: str, message: str) -> ChatResponse:
+        started = time.perf_counter()
         logger.info(
             "LangGraph flow started for conversation %s (%d chars) - classifying the question",
             conversation_id,
@@ -417,12 +446,75 @@ class MedicalRAGService:
             conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
         logger.info(
-            "Message %s answered: status=%s, answer_mode=%s - assistant reply stored",
+            "Message %s answered in %d ms: status=%s, answer_mode=%s - assistant reply stored",
             user_message.id,
+            int((time.perf_counter() - started) * 1000),
             response.status.value,
             response.answer_mode,
         )
         return response
+
+    def send_message_stream(self, conversation_id: str, message: str) -> Iterator[dict[str, Any]]:
+        """Yield token events for the answer path, then one terminal response event.
+
+        Routing, guardrails and the clinician-review gate are unchanged: every
+        non-answer route delegates to ``send_message`` and emits a single event.
+        The final response is stored in SQLite exactly as in the non-stream path.
+        """
+        triage = triage_query(message).value
+        conversation = self.store.get_conversation(conversation_id)
+        if conversation.mode == "human" or triage not in {
+            Triage.GENERAL.value,
+            Triage.SYMPTOM.value,
+        }:
+            response = self.send_message(conversation_id, message)
+            yield {"type": "response", "response": response.model_dump(mode="json")}
+            return
+
+        user_message = self.store.add_message(conversation_id, "user", message)
+        thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
+        state: AgentState = {
+            "question": message,
+            "patient_id": conversation.patient_id,
+            "conversation_id": conversation_id,
+            "message_id": user_message.id,
+            "thread_id": thread_id,
+        }
+        state.update(self._load_context_node(state))
+        prompt, values, sources, tool_activity, answer_mode = self._prepare_general_answer(state)
+
+        llm = self.llm_factory()
+        pieces: list[str] = []
+        for chunk in llm.stream(prompt.invoke(values)):
+            token = str(getattr(chunk, "content", "") or "")
+            if token:
+                pieces.append(token)
+                yield {"type": "token", "token": token}
+        answer = "".join(pieces)
+        if not answer.strip():
+            # Some reasoning models return no streamed content; fall back to the
+            # battle-tested non-stream call (including its empty-content retry).
+            logger.warning("Streaming returned no visible content; retrying with the non-stream LLM path")
+            answer = self._generate(prompt, **values)
+
+        response = ChatResponse(
+            answer=answer,
+            sources=[SourceCitation(**source) for source in sources],
+            tool_activity=ToolActivity(**tool_activity) if tool_activity else None,
+            status=ChatStatus.ANSWERED,
+            thread_id=thread_id,
+            answer_mode=answer_mode,
+        )
+        self.store.add_message(
+            conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
+        )
+        logger.info(
+            "Streamed message %s completed: status=%s, answer_mode=%s - assistant reply stored",
+            user_message.id,
+            response.status.value,
+            response.answer_mode,
+        )
+        yield {"type": "response", "response": response.model_dump(mode="json")}
 
     def resume_review(self, review: MedicationReview) -> ChatResponse:
         logger.info(

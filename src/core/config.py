@@ -57,6 +57,24 @@ class Settings:
         default_factory=lambda: float(os.getenv("DRUGGPT_RELEVANCE_THRESHOLD", "0.35"))
     )
     retrieval_k: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_RETRIEVAL_K", "5")))
+    # Clarifications are deterministic by default: a fixed, reviewed message is
+    # both faster (~11 s saved per vague message) and safer than a free-form LLM reply.
+    llm_clarify: bool = field(
+        default_factory=lambda: os.getenv("DRUGGPT_LLM_CLARIFY", "0").lower() in {"1", "true", "yes"}
+    )
+    # Index quality controls. Junk pages (dedications, indexes, TOCs, numeric
+    # tables) polluted retrieval in the original corpus and are dropped at index time.
+    min_chunk_chars: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_MIN_CHUNK_CHARS", "120")))
+    skip_front_matter_pages: int = field(
+        default_factory=lambda: int(os.getenv("DRUGGPT_SKIP_FRONT_MATTER_PAGES", "5"))
+    )
+    max_chunks_per_document: int = field(
+        default_factory=lambda: int(os.getenv("DRUGGPT_MAX_CHUNKS_PER_DOCUMENT", "600"))
+    )
+    # LocalStore has no auth. Refuse non-loopback binds unless explicitly opted in.
+    allow_remote: bool = field(
+        default_factory=lambda: os.getenv("DRUGGPT_ALLOW_REMOTE", "0").lower() in {"1", "true", "yes"}
+    )
     api_host: str = field(default_factory=lambda: os.getenv("DRUGGPT_API_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_API_PORT", "8000")))
     ui_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_UI_PORT", "8501")))
@@ -97,6 +115,17 @@ class Settings:
             raise ValueError(f"DRUGGPT_RELEVANCE_THRESHOLD must be in [0, 1], got {self.relevance_threshold}")
         if self.retrieval_k < 1:
             raise ValueError(f"DRUGGPT_RETRIEVAL_K must be >= 1, got {self.retrieval_k}")
+        if self.min_chunk_chars < 1:
+            raise ValueError(f"DRUGGPT_MIN_CHUNK_CHARS must be >= 1, got {self.min_chunk_chars}")
+        if self.skip_front_matter_pages < 0:
+            raise ValueError(f"DRUGGPT_SKIP_FRONT_MATTER_PAGES must be >= 0, got {self.skip_front_matter_pages}")
+        if self.max_chunks_per_document < 1:
+            raise ValueError(f"DRUGGPT_MAX_CHUNKS_PER_DOCUMENT must be >= 1, got {self.max_chunks_per_document}")
+        if not self.allow_remote and self.api_host not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError(
+                f"Refusing to bind to {self.api_host!r}: LocalStore has no authentication. "
+                "Set DRUGGPT_ALLOW_REMOTE=1 only for a trusted local network demo."
+            )
 
 
 settings = Settings.from_env()

@@ -1,8 +1,23 @@
+import os
 from dataclasses import replace
 
 import pytest
 
 from src.core.config import PROJECT_ROOT, Settings
+from src.core.runtime import configure_runtime
+
+
+def test_runtime_shims_disable_tensorflow(monkeypatch):
+    for key in ("USE_TF", "TRANSFORMERS_NO_TF", "TF_CPP_MIN_LOG_LEVEL"):
+        monkeypatch.delenv(key, raising=False)
+    # configure_runtime is idempotent; reset its guard so the assertion is meaningful.
+    import src.core.runtime as runtime
+
+    monkeypatch.setattr(runtime, "_CONFIGURED", False)
+    configure_runtime()
+    assert os.environ["USE_TF"] == "0"
+    assert os.environ["TRANSFORMERS_NO_TF"] == "1"
+    assert os.environ["TF_CPP_MIN_LOG_LEVEL"] == "3"
 
 
 def test_project_root_is_repository_root():
@@ -63,6 +78,17 @@ def test_replace_keeps_settings_dataclass_semantics(tmp_path):
     assert override.data_dir == tmp_path / "data"
     assert override.relevance_threshold == 0.9
     assert override.openrouter_api_key == base.openrouter_api_key
+
+
+def test_validation_refuses_remote_bind_without_opt_in():
+    settings = replace(Settings.from_env(), api_host="0.0.0.0", allow_remote=False)
+    with pytest.raises(ValueError, match="Refusing to bind"):
+        settings.validate()
+
+
+def test_validation_allows_remote_bind_when_explicitly_enabled():
+    settings = replace(Settings.from_env(), api_host="0.0.0.0", allow_remote=True)
+    settings.validate()
 
 
 def test_ensure_directories_creates_runtime_dirs(tmp_path, monkeypatch):

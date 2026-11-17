@@ -13,7 +13,16 @@ pytest
 ruff check .
 ```
 
-Tests use fake retrievers, an in-memory store, and an LLM stub, so they do not need an OpenRouter key, a network connection, or the private PDF corpus. Add behavioral tests alongside changes to guardrails, response schemas, indexing, and UI client calls. Keep runtime data out of commits and use typed models at application boundaries.
+Tests use fake retrievers, an in-memory store, and an LLM stub, so they do not need an OpenRouter key, a network connection, or the private PDF corpus. Add behavioral tests alongside changes to guardrails, response schemas, indexing, retrieval scoring, and UI client calls. Keep runtime data out of commits and use typed models at application boundaries.
+
+Useful targeted suites:
+
+```bash
+pytest tests/test_retrieval.py tests/test_indexing.py   # scoring, schema detection, index filters
+pytest tests/test_service.py tests/test_api.py          # streaming, guardrails, clinician review
+```
+
+`src.core.runtime.configure_runtime()` is called first in every entrypoint (uvicorn target and Streamlit pages). It disables TensorFlow before heavy imports and suppresses the Python-EOL warning from `google.api_core`. Add the same call to any new entrypoint.
 
 ## Project layout
 
@@ -66,6 +75,13 @@ remain visible; to quiet it, set its level to `WARNING` in `setup_logging()`.
 2. Wire it into `build_parser()`.
 3. Add tests in `tests/test_cli.py` (no server start required).
 4. Update `docs/setup.md` and `docs/architecture.md`.
+
+## Retrieval and streaming internals
+
+- `src/rag/retrieval.py` caches the embedder, Chroma client and store with `functools.lru_cache`. Call `invalidate_caches()` after any index rebuild; otherwise searches keep hitting the deleted collection. The embedding model is intentionally kept warm.
+- Scores are `clamp(1 - cosine_distance, 0, 1)`. Never switch back to `similarity_search_with_relevance_scores` without fixing score semantics first — it produced negative values and a warning that dumped entire documents into the log.
+- `MedicalRAGService._prepare_general_answer()` is shared by the graph and the streaming endpoint. Keep guardrail branches and the `interrupt()` review gate untouched when changing the answer path.
+- `GET /v1/models` is a compatibility shim for external OpenAI-compatible probes; nothing in this repo calls it.
 
 ## Conventions
 

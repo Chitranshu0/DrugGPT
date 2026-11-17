@@ -54,6 +54,10 @@ streamlit run src/ui/Patient_Chat.py --server.port 8501
 
 There is no `python main.py` or `python app.py`; run uvicorn and Streamlit directly.
 
+**Upgrading an existing checkout:** run `python -m src.cli index` once. The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
+
+Chat answers can also be streamed through `POST /conversations/{id}/messages/stream` (server-sent events); guardrails and clinician review are unchanged.
+
 ## Safety and limitations
 
 DrugGPT answers medical science and drug-study questions only. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. If no indexed source sufficiently supports a question, it provides general educational information rather than inventing an answer. Verify research conclusions against the original materials and qualified professionals.

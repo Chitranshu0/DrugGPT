@@ -35,20 +35,42 @@ Returns API status.
 {"status": "running", "mode": "local-development-only"}
 ```
 
-## `GET /vector-db/status`
+## `GET /v1/models`
 
-Returns index readiness.
+Minimal OpenAI-compatible discovery shim for external probes (not used by the Streamlit client).
 
 ```json
-{"ready": true, "chunks_indexed": 12, "documents_indexed": 2}
+{"object": "list", "data": [{"id": "nvidia/nemotron-3.5-lightning:free", "object": "model", "owned_by": "openrouter"}]}
+```
+
+## `GET /vector-db/status`
+
+Returns index readiness. An outdated L2 index reports `ready: false` with `needs_rebuild: true` and a `message` telling you to rebuild.
+
+```json
+{
+  "ready": true,
+  "chunks_indexed": 12,
+  "documents_indexed": 2,
+  "schema_version": 2,
+  "distance_metric": "cosine",
+  "needs_rebuild": false,
+  "message": null
+}
 ```
 
 ## `POST /vector-db/rebuild`
 
-Builds the local Chroma collection from PDFs under `data/raw`. Returns counts, or `400` when no indexable PDFs are available.
+Builds the local Chroma collection from PDFs under `data/raw`. Low-value pages, short chunks, and surplus chunks are dropped; source paths are stored repo-relative. Returns counts, or `400` when no indexable PDFs are available.
 
 ```json
-{"documents_indexed": 2, "chunks_indexed": 12, "message": "Index rebuilt."}
+{
+  "documents_indexed": 2,
+  "chunks_indexed": 12,
+  "chunks_dropped": 34,
+  "per_document": {"data/raw/book.pdf": 12},
+  "message": "Index rebuilt."
+}
 ```
 
 ## Patients
@@ -87,6 +109,13 @@ Create a conversation.
 ### `GET /conversations/{conversation_id}/messages`
 List messages in a conversation.
 
+### `GET /conversations/{conversation_id}/messages/since`
+Cheap polling payload used by the Streamlit transcript fragment. With `after=<message_id>`, returns only messages added after that id plus the current `version` (total message count). Omitting `after` returns the full history.
+
+```json
+{"messages": [], "version": 2}
+```
+
 ### `POST /conversations/{conversation_id}/messages`
 Send a message. LangGraph routes it and returns a `ChatResponse` with answer, sources, tool activity, status, and optional review.
 
@@ -105,6 +134,20 @@ Possible outcomes:
 | Out of scope | `out_of_scope` | `scope_notice` |
 | Personal decision held for clinician | `review_pending` | `clinician_review` |
 | Conversation in human mode | `review_pending` | `human_hold` |
+
+### `POST /conversations/{conversation_id}/messages/stream`
+
+Server-sent events (SSE) variant of the chat endpoint. Streaming is used only for the general/symptom answer path; emergency, scope, clarification, and clinician-review routes emit a single terminal event. The terminal response contains the same `ChatResponse` as the non-stream endpoint and is persisted to SQLite identically.
+
+```text
+data: {"type": "token", "token": "Aspirin "}
+
+data: {"type": "token", "token": "inhibits platelets."}
+
+data: {"type": "response", "response": {"answer": "Aspirin inhibits platelets.", "answer_mode": "source_grounded", ...}}
+```
+
+Error events use `{"type": "error", "detail": "...", "status": 503?}`. The review gate and its `graph_thread_id` pairing are unchanged.
 
 ## Clinician review
 
@@ -154,7 +197,7 @@ Response:
 ## ChatResponse schema
 
 - `answer`: assistant text
-- `sources`: list of `{id, title, path, page, excerpt, relevance_score}`
+- `sources`: list of `{id, title, path, page, excerpt, relevance_score}`. `path` is repo-relative; `relevance_score` is `clamp(1 - cosine_distance, 0, 1)`.
 - `tool_activity`: `{tool_name, message, sources_found}`
 - `status`: one of the `status` values above
 - `thread_id`, `review_id`, `review_status`

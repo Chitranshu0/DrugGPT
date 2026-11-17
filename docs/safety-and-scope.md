@@ -4,7 +4,7 @@ DrugGPT is a **medical education assistant** for students and the general public
 
 ## What DrugGPT does
 
-- Holds a conversation: when a message is too vague, it asks one short clarifying question instead of guessing.
+- Holds a conversation: when a message is too vague, it returns one fixed, reviewed clarifying question instead of guessing (no LLM call by default).
 - Searches local, licensed medical PDFs and prefers source-grounded answers with page citations.
 - Falls back to clearly labeled general educational information when no source is relevant enough.
 - Declines unrelated questions and applies deterministic guardrails (`triage_query`) to every message.
@@ -32,6 +32,10 @@ The assistant drafts internal guidance, saves it as a review, and pauses with a 
 
 Emergency signals (for example chest pain, difficulty breathing, overdose, or self-harm) are classified first and always win over other rules. DrugGPT returns immediate emergency guidance and directs the user to contact local emergency services or the nearest emergency department. Emergency messages are **never** placed in a review queue.
 
+## Local-only guarantee
+
+`LocalStore` has **no authentication** and is for local demos only. `Settings.validate()` refuses to bind the API to a non-loopback host unless `DRUGGPT_ALLOW_REMOTE=1`, which is itself only for trusted local-network demos. Never enter real patient data, and never expose this service to the public internet.
+
 ## Verification
 
-Verify research conclusions against the original PDFs and qualified professionals. If no indexed source sufficiently supports a question, DrugGPT provides general educational information rather than inventing an answer.
+Verify research conclusions against the original PDFs and qualified professionals. If no indexed source sufficiently supports a question, DrugGPT provides general educational information rather than inventing an answer. Citations use repo-relative paths and one-based page numbers; confirm them against the original PDF.

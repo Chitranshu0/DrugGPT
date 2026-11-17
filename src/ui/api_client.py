@@ -1,6 +1,9 @@
 """Testable HTTP client shared by Streamlit pages."""
 
+import json
 import os
+from collections.abc import Iterator
+from functools import lru_cache
 
 import requests
 
@@ -12,8 +15,9 @@ def api_base_url() -> str:
     return os.getenv("DRUGGPT_API_URL") or f"http://{settings.api_host}:{settings.api_port}"
 
 
+@lru_cache(maxsize=8)
 def get_client() -> "DrugGPTApiClient":
-    """Build a client pointed at the configured backend URL."""
+    """Build a client pointed at the configured backend URL (once per process)."""
     return DrugGPTApiClient(api_base_url())
 
 
@@ -58,8 +62,26 @@ class DrugGPTApiClient:
     def messages(self, conversation_id: str) -> list[dict]:
         return self._request("GET", f"/conversations/{conversation_id}/messages")
 
+    def messages_since(self, conversation_id: str, after: str | None = None) -> dict:
+        """Return only messages added after ``after`` plus the current count."""
+        suffix = f"?after={after}" if after else ""
+        return self._request("GET", f"/conversations/{conversation_id}/messages/since{suffix}")
+
     def send_message(self, conversation_id: str, message: str) -> dict:
         return self._request("POST", f"/conversations/{conversation_id}/messages", json={"message": message})
+
+    def send_message_stream(self, conversation_id: str, message: str) -> Iterator[dict]:
+        """Yield SSE payloads from the streaming chat endpoint."""
+        with requests.post(
+            f"{self.base_url}/conversations/{conversation_id}/messages/stream",
+            json={"message": message},
+            stream=True,
+            timeout=120,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if line and line.startswith("data: "):
+                    yield json.loads(line.removeprefix("data: "))
 
     def reviews(self, status: str = "pending") -> list[dict]:
         return self._request("GET", f"/reviews?status={status}")
