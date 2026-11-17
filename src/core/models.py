@@ -96,6 +96,7 @@ class Conversation(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    mode: str = "ai"
 
 
 class ConversationMessage(BaseModel):
@@ -117,6 +118,12 @@ class ReviewDecisionRequest(BaseModel):
     reviewer_name: str = Field(min_length=1, max_length=120)
     approved_guidance: str | None = Field(default=None, max_length=4000)
     reviewer_note: str | None = Field(default=None, max_length=2000)
+
+
+class ClinicianReplyRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    reviewer_name: str = Field(min_length=1, max_length=120)
+    review_id: str | None = None
 
 
 class MedicationReview(BaseModel):

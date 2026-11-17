@@ -1,25 +1,27 @@
-"""Patient chat page. Run with: python main.py ui (or streamlit run src/ui/app.py)."""
+"""Patient chat page.
+
+Run with ``streamlit run src/ui/Patient_Chat.py`` (:8501).
+"""
+from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
-import requests
-import streamlit as st
+# Allow `streamlit run src/ui/Patient_Chat.py` to work without an editable install
+# by putting the repository root (marked by pyproject.toml) on sys.path.
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "pyproject.toml").is_file():
+        sys.path.insert(0, str(_parent))
+        break
 
-from src.ui.api_client import DrugGPTApiClient
+import requests  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from src.ui.api_client import get_client  # noqa: E402
 
 st.set_page_config(page_title="DrugGPT Patient Chat", page_icon="💊", layout="wide")
-client = DrugGPTApiClient(os.getenv("DRUGGPT_API_URL", "http://127.0.0.1:8000"))
-
-
-def show_sources(sources: list[dict]) -> None:
-    for source in sources:
-        title = f"[{source['id']}] {source['title']}"
-        if source.get("page"):
-            title += f" — page {source['page']}"
-        with st.expander(title):
-            st.caption(f"Relevance: {source['relevance_score']:.0%}")
-            st.write(source["excerpt"])
-
+client = get_client()
 
 st.title("💊 DrugGPT")
 st.caption("Medical information chat for education and clinician-reviewed medication guidance.")
@@ -54,13 +56,34 @@ with st.sidebar:
     st.divider()
     st.caption("Medication-related personal guidance is paused for clinician review before it appears here.")
 
-for message in client.messages(conversation["id"]):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        metadata = message.get("metadata", {})
-        if metadata.get("answer_mode") == "general_education":
-            st.caption("General educational information — not a diagnosis or prescription.")
-        show_sources(metadata.get("sources", []))
+
+@st.fragment(run_every="3s")
+def render_transcript(conversation_id: str) -> None:
+    for message in client.messages(conversation_id):
+        role = message.get("role", "assistant")
+        with st.chat_message(role):
+            content = message["content"]
+            if role == "clinician":
+                reviewer = (message.get("metadata") or {}).get("reviewer_name", "clinician")
+                content = f"🩺 **Dr. {reviewer}:**\n\n{content}"
+            st.markdown(content)
+            metadata = message.get("metadata", {})
+            if metadata.get("answer_mode") == "general_education":
+                st.caption("General educational information — not a diagnosis or prescription.")
+            show_sources(metadata.get("sources", []))
+
+
+def show_sources(sources: list[dict]) -> None:
+    for source in sources:
+        title = f"[{source['id']}] {source['title']}"
+        if source.get("page"):
+            title += f" — page {source['page']}"
+        with st.expander(title):
+            st.caption(f"Relevance: {source['relevance_score']:.0%}")
+            st.write(source["excerpt"])
+
+
+render_transcript(conversation["id"])
 
 if prompt := st.chat_input("Ask a health or medical question..."):
     with st.chat_message("user"):
@@ -71,9 +94,12 @@ if prompt := st.chat_input("Ask a health or medical question..."):
                 result = client.send_message(conversation["id"], prompt)
                 status.update(label="Response ready", state="complete", expanded=False)
             st.markdown(result["answer"])
-            if result["status"] == "review_pending":
+            answer_mode = result.get("answer_mode", "")
+            if answer_mode == "human_hold":
+                st.info("A clinician has taken over this conversation. They will reply here directly — check back shortly.")
+            elif result["status"] == "review_pending":
                 st.info("A clinician review is pending. Check back here after it is approved or rejected.")
-            if result["answer_mode"] == "general_education":
+            elif answer_mode == "general_education":
                 st.caption("General educational information — not a diagnosis or prescription.")
             show_sources(result.get("sources", []))
         except requests.RequestException as error:

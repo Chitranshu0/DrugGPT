@@ -4,6 +4,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import StructuredTool
@@ -300,6 +301,25 @@ class MedicalRAGService:
     def send_message(self, conversation_id: str, message: str) -> ChatResponse:
         logger.info("Processing message for conversation %s (chars=%d)", conversation_id, len(message))
         conversation = self.store.get_conversation(conversation_id)
+        if conversation.mode == "human":
+            logger.info("Conversation %s is in human handoff; queuing user message for the clinician", conversation_id)
+            self.store.add_message(conversation_id, "user", message, status="queued_for_clinician")
+            thread_id = f"conversation:{conversation_id}:message:{uuid4()}"
+            response = ChatResponse(
+                answer="A clinician has taken over this conversation. They will reply here directly — check back shortly.",
+                status=ChatStatus.REVIEW_PENDING,
+                thread_id=thread_id,
+                review_id=None,
+                review_status="human_hold",
+                answer_mode="human_hold",
+            )
+            self.store.add_message(
+                conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
+            )
+            logger.info(
+                "Message queued for clinician handoff (conversation=%s, mode=%s)", conversation_id, response.answer_mode
+            )
+            return response
         user_message = self.store.add_message(conversation_id, "user", message)
         thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
         result = self.graph.invoke(
@@ -341,6 +361,47 @@ class MedicalRAGService:
             review.conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
         logger.info("Review %s resumed with status=%s", review.id, response.status.value)
+        return response
+
+    def reply_as_clinician(
+        self,
+        conversation_id: str,
+        message: str,
+        reviewer_name: str,
+        review_id: str | None = None,
+    ) -> ChatResponse:
+        """Record a clinician's free-text reply, close any pending review, and return the conversation to AI mode."""
+        logger.info("Clinician %s replying in conversation %s", reviewer_name, conversation_id)
+        conversation = self.store.get_conversation(conversation_id)
+        pending = self.store.open_review_for_conversation(conversation_id)
+        effective_review_id = review_id or (pending.id if pending else None)
+        if effective_review_id is None:
+            raise ValueError("No open clinician review for this conversation.")
+        if pending is not None:
+            self.store.decide_review(
+                effective_review_id,
+                "approved",
+                reviewer_name,
+                note="clinician free-text reply",
+                guidance=message,
+            )
+            self.store.set_conversation_mode(conversation_id, "ai")
+        response = ChatResponse(
+            answer=message,
+            status=ChatStatus.ANSWERED,
+            thread_id=f"conversation:{conversation_id}:message:{uuid4()}",
+            review_id=effective_review_id,
+            review_status="approved",
+            answer_mode="clinician_reply",
+        )
+        self.store.add_message(
+            conversation_id,
+            "clinician",
+            message,
+            "clinician_reply",
+            {"reviewer_name": reviewer_name, "review_id": effective_review_id},
+        )
+        logger.info("Clinician reply recorded (conversation=%s, mode back to ai)", conversation_id)
         return response
 
     def answer(self, question: str, thread_id: str) -> ChatResponse:

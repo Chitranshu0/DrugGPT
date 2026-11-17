@@ -4,7 +4,7 @@ Only add PDFs that you are licensed or otherwise authorized to process. Keep the
 
 ## Indexing
 
-Run `python main.py index` (or the **Rebuild local medical source index** button in the Admin page) to:
+Run `python -m src.cli index` (or the **Rebuild local medical source index** button in the Admin page) to:
 
 1. Load every PDF under `data/raw` with `PyMuPDFLoader`.
 2. Split text into 1,000-character chunks with 150-character overlap.

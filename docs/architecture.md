@@ -8,7 +8,7 @@ The project uses a flat `src` layout (the package root is `src`, imported as `sr
 
 ```text
 DrugGPT/
-├── main.py                     # entrypoint: python main.py [api|ui|all|index|check|test]
+├── main.py                     # FastAPI backend entrypoint: python main.py
 ├── .env                        # runtime secrets (untracked)
 ├── .env.example                # template for .env
 ├── pyproject.toml
@@ -103,7 +103,7 @@ mkdir -p data/raw
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # 4. Terminal 2: Streamlit frontend (:8501)
-streamlit run src/ui/app.py --server.port 8501
+python -m streamlit run src/ui/app.py --server.port 8501
 ```
 
 Or use the Python launchers and maintenance CLI:

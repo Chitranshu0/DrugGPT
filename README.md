@@ -11,9 +11,9 @@ It is designed for students and researchers. It is not a diagnostic, prescribing
 - Local ChromaDB vector index for licensed medical PDFs
 - LangGraph-orchestrated `search_medical_sources` tool
 - Educational-only scope and safety guardrails
-- Clinician medication-review workflow with approval/rejection
+- Clinician medication-review and free-text chat workflow
 - Pytest and Ruff configuration for repeatable development
-- Single-command entrypoint via `main.py`
+- Two entrypoints: `uvicorn main:app` (backend) and `streamlit run` (frontend)
 
 ## Architecture
 
@@ -33,23 +33,23 @@ mkdir -p data/raw
 # Copy only licensed medical PDFs into data/raw/
 
 # Terminal 1: FastAPI backend (:8000)
-python main.py
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit frontend (:8501)
-python app.py
+streamlit run src/ui/Patient_Chat.py --server.port 8501
 ```
 
 ### Individual commands
 
 | Command | What it does |
 |---------|--------------|
-| `python main.py` | FastAPI backend only (:8000) |
-| `python app.py` | Streamlit frontend only (:8501) |
-| `python main.py --reload` | Backend with auto-reload |
-| `python app.py --api-url http://localhost:8000 --port 8502` | Frontend pointing at a custom backend |
-| `druggpt index` | rebuild Chroma index from `data/raw` |
-| `druggpt check` | resolved config + API health |
-| `druggpt test` | run the pytest suite |
+| `uvicorn main:app --reload` | FastAPI backend only (:8000) |
+| `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
+| `python -m src.cli index` | rebuild Chroma index from `data/raw` |
+| `python -m src.cli check` | resolved config + API health |
+| `python -m src.cli test` | run the pytest suite |
+
+There is no `python main.py` or `python app.py`; run uvicorn and Streamlit directly.
 
 ## Safety and limitations
 

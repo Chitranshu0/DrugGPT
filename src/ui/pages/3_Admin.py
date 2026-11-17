@@ -1,14 +1,22 @@
 """Source-index administration page."""
 
-import os
+import sys
+from pathlib import Path
 
-import requests
-import streamlit as st
+# Allow `streamlit run src/ui/pages/...` to work without an editable install by
+# putting the repository root (marked by pyproject.toml) on sys.path.
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "pyproject.toml").is_file():
+        sys.path.insert(0, str(_parent))
+        break
 
-from src.ui.api_client import DrugGPTApiClient
+import requests  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from src.ui.api_client import get_client  # noqa: E402
 
 st.set_page_config(page_title="DrugGPT Admin", page_icon="⚙️")
-client = DrugGPTApiClient(os.getenv("DRUGGPT_API_URL", "http://127.0.0.1:8000"))
+client = get_client()
 st.title("⚙️ Source index administration")
 try:
     status = client.status()

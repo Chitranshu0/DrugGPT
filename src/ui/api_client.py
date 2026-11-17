@@ -1,6 +1,20 @@
 """Testable HTTP client shared by Streamlit pages."""
 
+import os
+
 import requests
+
+from src.core.config import settings
+
+
+def api_base_url() -> str:
+    """Resolve the backend URL once so every page reads from a single source of truth."""
+    return os.getenv("DRUGGPT_API_URL") or f"http://{settings.api_host}:{settings.api_port}"
+
+
+def get_client() -> "DrugGPTApiClient":
+    """Build a client pointed at the configured backend URL."""
+    return DrugGPTApiClient(api_base_url())
 
 
 class DrugGPTApiClient:
@@ -69,5 +83,27 @@ class DrugGPTApiClient:
                 "reviewer_name": reviewer_name,
                 "approved_guidance": approved_guidance,
                 "reviewer_note": reviewer_note,
+            },
+        )
+
+    def transcript(self, conversation_id: str) -> dict:
+        """Return the full message list plus any open review and its context."""
+        return self._request("GET", f"/conversations/{conversation_id}/transcript")
+
+    def clinician_reply(
+        self,
+        conversation_id: str,
+        message: str,
+        reviewer_name: str,
+        review_id: str | None = None,
+    ) -> dict:
+        """Record a clinician's free-text reply and resume the conversation."""
+        return self._request(
+            "POST",
+            f"/conversations/{conversation_id}/clinician-reply",
+            json={
+                "message": message,
+                "reviewer_name": reviewer_name,
+                "review_id": review_id,
             },
         )

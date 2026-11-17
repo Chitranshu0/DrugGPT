@@ -1,67 +1,22 @@
-"""DrugGPT FastAPI backend entrypoint.
+"""uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
-Recommended:
-    uvicorn main:app --reload --host 127.0.0.1 --port 8000
-
-Also works:
-    python main.py              # start the FastAPI backend (:8000)
-    python main.py --reload     # with auto-reload
-    python main.py --port 9000  # custom port
+The FastAPI app is exposed lazily through PEP 562 ``__getattr__`` so that
+``uvicorn main:app`` never pays the heavy ML-import cost unless an actual
+request arrives. There is no ``python main.py`` entrypoint; run uvicorn directly.
 """
 from __future__ import annotations
 
-import argparse
-import sys
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-import uvicorn  # noqa: E402
-
-from src.core.config import setup_logging  # noqa: E402
+from src.core.config import setup_logging
 
 # Configure logging at import time so `uvicorn main:app --reload` (which never
-# calls ``main()``) still gets consistent, readable project logs.
+# calls a ``main()``) still gets consistent, readable project logs.
 setup_logging()
-
-
-def _load_app():
-    """Lazily import the FastAPI app so ``--help`` stays fast.
-
-    The app module imports heavy ML dependencies (sentence-transformers,
-    langchain, …) that are unnecessary for argument parsing.
-    """
-    from src.api.app import app as fastapi_app  # noqa: PLC0415
-
-    return fastapi_app
 
 
 def __getattr__(name: str):
     """PEP 562: expose a lazy ``app`` attribute for ``uvicorn main:app``."""
     if name == "app":
-        return _load_app()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        from src.api.app import app  # noqa: PLC0415
 
-
-def main() -> None:
-    from src.core.config import settings  # noqa: PLC0415
-
-    setup_logging()
-    parser = argparse.ArgumentParser(prog="main", description="DrugGPT FastAPI backend")
-    parser.add_argument("--host", default=settings.api_host, help="Bind host")
-    parser.add_argument("--port", type=int, default=settings.api_port, help="Bind port")
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
-    args = parser.parse_args()
-
-    uvicorn.run(
-        "main:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-    )
-
-
-if __name__ == "__main__":
-    main()
+        return app
+    raise AttributeError(f"module {__name__!r} has no attribute {name}")

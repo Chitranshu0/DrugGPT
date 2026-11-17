@@ -22,10 +22,16 @@ src/             # importable as src.* (package root)
 tests/           # pytest suite
 data/            # runtime data (ignored by Git)
 docs/            # this documentation
-main.py          # FastAPI backend entrypoint (`uvicorn main:app` / `python main.py`)
-app.py           # Streamlit frontend launcher (`python app.py`)
+main.py          # FastAPI backend entrypoint (`uvicorn main:app`)
 pyproject.toml   # packaging, pytest, ruff, coverage configuration
 .env             # runtime secrets (untracked)
+src/ui/
+  Patient_Chat.py          # patient chat page
+  pages/
+    1_Patient_Profile.py
+    2_Clinician_Chat.py    # clinician transcript + reply page
+    3_Admin.py
+  api_client.py            # shared HTTP client + get_client()
 ```
 
 ## Logging
@@ -36,10 +42,7 @@ pyproject.toml   # packaging, pytest, ruff, coverage configuration
 2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage result: general
 ```
 
-`main.py` calls it at import time so `uvicorn main:app --reload` logs immediately. Use the
-module loggers `druggpt.api` and `druggpt.rag.service` when adding code; call
-`logger.exception(...)` inside `except` blocks so the traceback reaches the terminal while the
-client receives a clean JSON error.
+`main.py` calls it at import time so `uvicorn main:app --reload` logs immediately.
 
 ## Adding a new command
 

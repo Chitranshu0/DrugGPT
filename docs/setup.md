@@ -22,8 +22,11 @@ Put PDFs you are licensed to index in `data/raw`, then start the two services in
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit frontend (:8501)
-streamlit run src/ui/app.py --server.port 8501
+streamlit run src/ui/Patient_Chat.py --server.port 8501
 ```
+
+The Streamlit entrypoints add the repository root to `sys.path`, so direct
+`streamlit run` also works without an editable install.
 
 Open:
 
@@ -44,10 +47,7 @@ clinician reviews as they happen.
 | Command | What it does |
 |---------|--------------|
 | `uvicorn main:app --reload` | FastAPI backend only (:8000) |
-| `python main.py` | FastAPI backend via the Python launcher |
-| `python main.py --reload` | Backend with auto-reload |
-| `streamlit run src/ui/app.py` | Streamlit frontend only (:8501) |
-| `python app.py` | Streamlit frontend via the Python launcher |
+| `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
 | `python -m src.cli index` | rebuild the Chroma index from `data/raw` |
 | `python -m src.cli check` | print resolved config + API health |
 | `python -m src.cli test` | run the pytest suite |
@@ -96,7 +96,7 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 ## Verification
 
 ```bash
-python main.py check      # resolved config + API health (needs the API running)
+python -m src.cli check      # resolved config + API health (needs the API running)
 pytest                    # test suite
 ruff check .              # linting
 ```

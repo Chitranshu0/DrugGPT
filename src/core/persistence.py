@@ -50,7 +50,8 @@ class LocalStore:
                 );
                 CREATE TABLE IF NOT EXISTS conversations (
                     id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, title TEXT NOT NULL,
-                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    mode TEXT NOT NULL DEFAULT 'ai'
                 );
                 CREATE TABLE IF NOT EXISTS messages (
                     id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL,
@@ -67,6 +68,10 @@ class LocalStore:
                 CREATE INDEX IF NOT EXISTS idx_review_status ON medication_reviews(status, updated_at DESC);
                 """
             )
+            # Backfill the `mode` column on databases created before it existed.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations)").fetchall()}
+            if "mode" not in columns:
+                conn.execute("ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'ai'")
 
     @staticmethod
     def _patient(row: sqlite3.Row) -> Patient:
@@ -190,6 +195,33 @@ class LocalStore:
     def ensure_demo_conversation(self, patient_id: str) -> Conversation:
         conversations = self.list_conversations(patient_id)
         return conversations[0] if conversations else self.create_conversation(patient_id, "General medical chat")
+
+    def conversation_mode(self, conversation_id: str) -> str:
+        self.get_conversation(conversation_id)
+        with self._connection() as conn:
+            row = conn.execute("SELECT mode FROM conversations WHERE id=?", (conversation_id,)).fetchone()
+        return str(row["mode"] or "ai")
+
+    def set_conversation_mode(self, conversation_id: str, mode: str) -> None:
+        if mode not in ("ai", "human"):
+            raise ValueError(f"Invalid conversation mode: {mode!r}")
+        self.get_conversation(conversation_id)
+        now = _now()
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE conversations SET mode=?, updated_at=? WHERE id=?",
+                (mode, now, conversation_id),
+            )
+
+    def open_review_for_conversation(self, conversation_id: str) -> MedicationReview | None:
+        self.get_conversation(conversation_id)
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM medication_reviews WHERE conversation_id=? AND status='pending' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (conversation_id,),
+            ).fetchone()
+        return self._review(row) if row else None
 
     def add_message(
         self,
