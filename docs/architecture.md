@@ -1,107 +1,96 @@
 # Architecture
 
-DrugGPT is a **local-first, source-grounded medical education application**. Everything runs on your machine: the FastAPI backend, the Streamlit frontend, the Chroma vector index, and the SQLite store. This keeps sensitive PDFs and conversation data off managed cloud services while still letting an external language model (via OpenRouter) generate answers.
+DrugGPT is a **local-first, source-grounded medical education application**. Everything runs on your machine: the FastAPI backend, the Streamlit frontend, the Chroma vector index, and the SQLite store. An external language model (via OpenRouter) is used only to phrase responses; it never decides what the app is allowed to do.
+
+Two frameworks carry the whole system:
+
+- **LangGraph** owns the conversation. Every message runs through a state graph that decides *how* to respond.
+- **FastAPI** owns the HTTP boundary. It validates requests, starts the graph, and returns typed responses.
+
+There is no separate hand-written orchestration layer — routing, RAG invocation, clarification, and human handoff all live in the LangGraph graph, and all external access goes through FastAPI.
 
 ## What the architecture looks like
 
-The system has four layers:
+The system has four parts:
 
-1. **User interfaces** — Streamlit pages for patients and clinicians.
-2. **API boundary** — FastAPI routes, request/response models, and health endpoints.
-3. **Core engine** — LangGraph agent, guardrails, retriever, and LLM caller.
-4. **Local stores** — SQLite for application data and ChromaDB for the searchable PDF index.
+1. **User interfaces** — Streamlit pages for patients, clinicians, and admins.
+2. **FastAPI boundary** — typed routes, validation, and `ChatResponse` models.
+3. **LangGraph conversation graph** — triage → context → one of six response paths.
+4. **Local stores** — SQLite for conversation data and ChromaDB for the searchable PDF index.
 
 ```mermaid
 flowchart TD
-    subgraph UI["User Interfaces"]
-        P[Patient Chat page]
-        D[Clinician Chat page]
-        A[Admin page]
-    end
+    U[User asks a question] --> API[FastAPI receives and validates]
+    API --> T[LangGraph: triage node<br/>deterministic guardrails]
 
-    subgraph API["FastAPI Backend"]
-        R["/conversations/{id}/messages"]
-        REV["/reviews/{id}/decision"]
-        CR["/conversations/{id}/clinician-reply"]
-        VDB["/vector-db/*"]
-        H[/health, /docs]
-    end
+    T -->|emergency| E[Emergency guidance]
+    T -->|out of scope| O[Scope notice]
+    T -->|unclear question| C[LangGraph: load_context node]
+    T -->|educational / symptom question| C
+    T -->|personal health decision| C
 
-    subgraph CORE["Core RAG Engine"]
-        GS[MedicalRAGService]
-        G[guardrails.py<br/>triage_query]
-        LG[LangGraph flow]
-        RET[retrieval.py<br/>Chroma search]
-        IDX[indexing.py<br/>PDF → chunks]
-        LLM[OpenRouter LLM]
-    end
+    C -->|unclear| Q[clarify node<br/>one short follow-up question]
+    C -->|educational / symptom| R{Chroma RAG has<br/>relevant chunks?}
+    R -->|yes| A[answer node<br/>source-grounded + citations]
+    R -->|no| G[answer node<br/>general education]
+    C -->|personal decision| H[clinician_review node<br/>draft + interrupt]
 
-    subgraph STORE["Local Stores"]
-        RAW[data/raw<br/>licensed PDFs]
-        CHROMA[data/chroma<br/>vector index]
-        DB[(data/druggpt.db<br/>SQLite)]
-        CKPT[data/checkpoints<br/>conversation state]
-    end
+    H --> HP[Human clinician reviews<br/>via FastAPI]
+    HP -->|approved| HA[Clinician-approved guidance]
+    HP -->|rejected| HR[Safety refusal]
+    HP -->|free-text reply| HC[Clinician reply]
 
-    P -->|POST message| R
-    D -->|POST decision| REV
-    D -->|POST clinician-reply| CR
-    A -->|rebuild index| VDB
+    E --> RES[FastAPI returns ChatResponse<br/>answer + status + sources]
+    O --> RES
+    Q --> RES
+    A --> RES
+    G --> RES
+    HA --> RES
+    HR --> RES
+    HC --> RES
+    RES --> UI[Streamlit renders answer,<br/>status, and source cards]
 
-    R --> GS
-    REV --> GS
-    CR --> GS
-    GS --> G
-    G -->|emergency| EM[Return emergency guidance]
-    G -->|out_of_scope| OO[Return scope notice]
-    G -->|general / symptom| LG
-    G -->|medication_review| LG
-    G -->|human mode| HH[Queue for clinician]
-
-    LG -->|load context| DB
-    LG -->|search_medical_sources| RET
-    RET --> CHROMA
-    CHROMA --> RAW
-    RET -->|Evidence chunks| LG
-    LG -->|below threshold| GE[General-education answer]
-    LG -->|grounded| LLM
-    LLM -->|source-grounded answer| RES[Return ChatResponse]
-    LG -->|medication_review| MR[Draft + interrupt]
-    MR -->|await clinician| REV
-    REV -->|approved| RES
-    REV -->|rejected| SR[Return safety refusal]
-    HH --> CR
-    CR --> RES
-
-    VDB --> IDX
-    IDX --> RAW
-    IDX --> CHROMA
-    GS -->|persist| DB
-
-    style EM fill:#ffcccb,stroke:#333
-    style OO fill:#ffcccb,stroke:#333
-    style SR fill:#ffcccb,stroke:#333
-    style GE fill:#fff9c4,stroke:#333
-    style MR fill:#fff9c4,stroke:#333
-    style HH fill:#fff9c4,stroke:#333
-    style RES fill:#e1f5e1,stroke:#333
+    style E fill:#ffcccb,stroke:#333
+    style HR fill:#ffcccb,stroke:#333
+    style Q fill:#fff9c4,stroke:#333
+    style H fill:#fff9c4,stroke:#333
+    style HP fill:#fff9c4,stroke:#333
+    style A fill:#e1f5e1,stroke:#333
+    style G fill:#e1f5e1,stroke:#333
 ```
+
+**How to read the diagram:** red nodes are immediate safety outcomes, yellow nodes are "wait for a human or for more detail," and green nodes are educational answers. The important point is that **RAG is invoked only on the educational/symptom path**. Clarifications, emergencies, scope notices, and personal health decisions never trigger retrieval.
 
 ## How a message flows through the system
 
-When a patient types a message in the Streamlit UI, the following happens:
+1. **Patient sends a message** — Streamlit posts to `POST /conversations/{id}/messages`.
+2. **FastAPI validates and loads** — the route checks the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
+3. **LangGraph runs `triage`** — deterministic regex rules classify the message as emergency, out-of-scope, needs-more-information, general, symptom, or one of four personal-decision types.
+4. **Human mode short-circuits the graph** — if `Conversation.mode == "human"`, the message is queued with `answer_mode="human_hold"` and no graph/LLM call happens.
+5. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
+6. **The graph picks one response path**:
+   - **Emergency / out-of-scope** → immediate fixed guidance.
+   - **Unclear** → the `clarify` node asks one short follow-up question using a system prompt; no retrieval, no medical advice.
+   - **General / symptom** → the `answer` node searches Chroma. Chunks above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history.
+   - **Personal health decision** → the `clinician_review` node drafts internal guidance, saves a review row, and pauses with `interrupt()`.
+7. **A clinician resolves the hold** — through `POST /reviews/{id}/decision` (approve/reject) or `POST /conversations/{id}/clinician-reply` (free text). The graph thread is resumed with `Command(resume=...)`, keyed by the stored `graph_thread_id`.
+8. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. Streamlit renders the right caption for each mode.
 
-1. **Patient sends a message** — `Patient_Chat.py` posts to `POST /conversations/{id}/messages`.
-2. **API receives the message** — FastAPI validates the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
-3. **Safety triage runs first** — `guardrails.py` uses deterministic regex rules (`triage_query`) to classify the intent as **emergency**, **out-of-scope**, **general**, **symptom**, or **medication review**.
-4. **Human mode short-circuits the LLM** — if the conversation is in `human` mode, the message is queued and the API returns `answer_mode="human_hold"`. No LLM call is made until a clinician replies.
-5. **The LangGraph agent executes the right path**:
-   - **Emergency / out-of-scope** → return an immediate, fixed response.
-   - **General or symptom question** → load patient context, search Chroma, and ask the LLM to answer from the retrieved sources.
-   - **Medication-related request** → draft guidance, save a pending review row, and pause with `interrupt()` until a clinician decides.
-6. **Retrieval decides grounding quality** — `retrieval.py` fetches the top-k chunks from Chroma. Only chunks with `relevance_score >= DRUGGPT_RELEVANCE_THRESHOLD` are passed to the LLM. If no chunk qualifies, the service returns a **general-education** answer (`answer_mode="general_education"`) instead of inventing a source.
-7. **Response returns to the UI** — the API sends back a `ChatResponse` with the answer, citations, tool activity, status, and (when relevant) a `review_id`.
-8. **Clinician review resolves medication requests** — the clinician uses the Clinician Chat page to approve or reject the pending review via `POST /reviews/{id}/decision`, or to send a free-text reply via `POST /conversations/{id}/clinician-reply`.
+## Triage categories
+
+| Category | Meaning | Graph path |
+|----------|---------|------------|
+| `emergency` | Chest pain, trouble breathing, overdose, self-harm, etc. | Immediate emergency guidance |
+| `out_of_scope` | Non-medical requests (code, weather, sports, etc.) | Scope notice |
+| `needs_more_information` | Very short or generic message ("help", "hi there") | `clarify` node |
+| `general` | Medical science / drug-study education | RAG → `answer` |
+| `symptom` | Symptom-related education | RAG → `answer` |
+| `medication_review` | "What medicine/dose should I take?" | `clinician_review` |
+| `test_decision` | "What test/scan should I get?" | `clinician_review` |
+| `treatment_decision` | "What treatment should I start?" | `clinician_review` |
+| `report_interpretation` | "What does my test report mean?" | `clinician_review` |
+
+Emergency classification always wins over the other rules.
 
 ## Project layout
 
@@ -122,10 +111,10 @@ DrugGPT/
 │   │   ├── models.py           # typed request/response/domain models
 │   │   └── persistence.py      # SQLite store (patients, conversations, reviews)
 │   ├── rag/
-│   │   ├── guardrails.py       # triage rules (emergency / medication / symptom / general / out-of-scope)
+│   │   ├── guardrails.py       # triage rules + clinician-review categories
 │   │   ├── indexing.py         # Chroma index rebuild from data/raw
 │   │   ├── retrieval.py        # Chroma retrieval + provenance
-│   │   └── service.py          # LangGraph medical agent + citations
+│   │   └── service.py          # LangGraph state graph + prompts
 │   └── ui/
 │       ├── Patient_Chat.py     # patient chat page
 │       ├── api_client.py       # testable HTTP client
@@ -143,24 +132,24 @@ DrugGPT/
 |--------|----------------|
 | `src.api` | FastAPI backend and HTTP boundary |
 | `src.core` | Settings and typed shared API/domain models |
-| `src.rag` | Guardrails, PDF indexing, Chroma retrieval, LangGraph tool orchestration, citation mapping |
+| `src.rag.guardrails` | Deterministic triage and the set of categories that require human review |
+| `src.rag.service` | LangGraph nodes, edges, prompts, and response mapping |
+| `src.rag.indexing` / `src.rag.retrieval` | PDF chunking and Chroma-backed evidence |
 | `src.ui` | Streamlit application and testable HTTP client |
-| `src.cli` | CLI entrypoint (`main.py`) wrapping API, UI, index, check, and test commands |
+| `src.cli` | Maintenance commands (`index`, `check`, `test`) |
 
 ## Two kinds of human-in-the-loop behavior
 
-DrugGPT has two related but separate ways a clinician can be involved:
-
 | Mechanism | Trigger | Endpoint | Purpose |
 |-----------|---------|----------|---------|
-| **Medication review gate** | `triage_query` classifies the message as `medication_review` | `POST /reviews/{id}/decision` | Approve or reject AI-drafted guidance before the patient sees it |
+| **Clinician review gate** | Triage is medication, test, treatment, or report interpretation | `POST /reviews/{id}/decision` | Approve or reject AI-drafted guidance before the patient sees it |
 | **Human clinician chat mode** | `Conversation.mode == "human"` | `POST /conversations/{id}/clinician-reply` | Queue patient messages so a clinician writes a free-text reply; any pending review is closed as approved and mode returns to `"ai"` |
 
-Both paths store the result in SQLite and resume the same `graph_thread_id` that was saved before the interrupt.
+Both paths store the result in SQLite and resume the same `graph_thread_id` saved before the interrupt. Emergency messages are never routed through either path.
 
 ## Persistence
 
-`data/raw` holds local licensed PDFs; `data/chroma` holds the disposable Chroma index; `data/checkpoints` is reserved for LangGraph conversation checkpoints; `data/druggpt.db` is the SQLite store for patients, conversations, and reviews. None are committed to Git.
+`data/raw` holds local licensed PDFs; `data/chroma` holds the disposable Chroma index; `data/checkpoints` holds LangGraph conversation checkpoints; `data/druggpt.db` is the SQLite store for patients, conversations, and reviews. None are committed to Git.
 
 ## Running the project
 
@@ -200,7 +189,7 @@ The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at
 
 ## Safety and scope
 
-DrugGPT answers medical science and drug-study questions for educational use. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. When no indexed source sufficiently supports a question, it provides general educational information rather than inventing an answer. Medication-related requests are held for clinician review. See [`safety-and-scope.md`](safety-and-scope.md) for details.
+DrugGPT is an educational assistant, not a clinician. It explains medical topics conversationally, asks for clarification when a question is vague, and cites local sources when they support an answer. It **does not** diagnose, prescribe, choose a test, recommend a treatment, or interpret a personal test report — those requests are paused for a human clinician. When no indexed source sufficiently supports a question, it gives general educational information rather than inventing an answer. Emergencies get immediate guidance, never a review queue. See [`safety-and-scope.md`](safety-and-scope.md).
 
 ## Related docs
 

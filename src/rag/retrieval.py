@@ -37,7 +37,10 @@ class MedicalRetriever:
             document_count = len({str(metadata.get("source", "")) for metadata in metadatas})
             return DatabaseStatus(ready=count > 0, chunks_indexed=count, documents_indexed=document_count)
         except chromadb.errors.NotFoundError:
-            logger.info("No Chroma collection found yet at %s", self.settings.chroma_dir)
+            logger.info(
+                "Vector index not built yet at %s - status=not ready (run `python -m src.cli index`)",
+                self.settings.chroma_dir,
+            )
             return DatabaseStatus(ready=False, chunks_indexed=0, documents_indexed=0)
         except Exception as error:  # corrupt store, bad permissions, locked file, …
             logger.warning(
@@ -63,7 +66,11 @@ class MedicalRetriever:
             )
             results = store.similarity_search_with_relevance_scores(query, k=self.settings.retrieval_k)
         except Exception as error:  # a corrupt/locked index must not crash the chat
-            logger.warning("Vector search failed (%s: %s); falling back to general education", type(error).__name__, error)
+            logger.warning(
+                "Vector search failed (%s: %s) - chat will fall back to general education",
+                type(error).__name__,
+                error,
+            )
             raise VectorDatabaseNotReadyError("The medical source index could not be read.") from error
         evidence: list[Evidence] = []
         for document, score in results:
@@ -83,5 +90,5 @@ class MedicalRetriever:
                     score=max(0.0, min(1.0, float(score))),
                 )
             )
-        logger.info("Vector search returned %d chunks", len(evidence))
+        logger.info("Vector search complete: %d candidate chunks returned for scoring", len(evidence))
         return evidence

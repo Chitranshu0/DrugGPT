@@ -7,17 +7,20 @@ It is designed for students and researchers. It is not a diagnostic, prescribing
 ## What it does
 
 - FastAPI backend with typed JSON chat responses
-- Streamlit research chat interface with visible RAG tool activity and source cards
+- Streamlit chat interface with visible RAG tool activity and source cards
 - Local ChromaDB vector index for licensed medical PDFs
-- LangGraph-orchestrated `search_medical_sources` tool
-- Educational-only scope and safety guardrails
-- Clinician medication-review and free-text chat workflow
+- LangGraph state graph that routes each message: triage → context → RAG answer / clarification / emergency / clinician review
+- Deterministic safety guardrails; RAG is invoked only for educational questions
+- Human-in-the-loop for personal decisions about medicines, tests, treatments, and test reports
+- Educational-only scope — not a diagnostic, prescribing, or emergency-care service
 - Pytest and Ruff configuration for repeatable development
 - Two entrypoints: `uvicorn main:app` (backend) and `streamlit run` (frontend)
 
 ## Architecture
 
-`Streamlit UI → FastAPI → scope/safety gate → search_medical_sources → ChromaDB → grounded LLM answer + citations`
+`Streamlit UI → FastAPI → LangGraph triage → context → (RAG answer | clarification | emergency/scope | clinician review) → ChatResponse`
+
+LangGraph owns the conversation flow; FastAPI owns the HTTP boundary. RAG (`search_medical_sources` → ChromaDB) is invoked only on the educational/symptom path. Personal clinical decisions pause for a human clinician before any guidance is shown. See [the architecture doc](docs/architecture.md) for the full flow diagram.
 
 The project code lives in `src` (imported as `src.*`); local PDFs, the Chroma index, and chat checkpoints live under the untracked `data/` directory.
 

@@ -39,10 +39,26 @@ src/ui/
 `src/core/config.py` exposes `setup_logging()`, which configures one consistent format:
 
 ```text
-2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage result: general
+2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage: general -> local evidence lookup, then an educational answer
 ```
 
 `main.py` calls it at import time so `uvicorn main:app --reload` logs immediately.
+
+### Log message convention
+
+Write messages as **what happened + identifiers + outcome**, in plain language that explains
+the flow to a developer reading the console after the fact:
+
+- Good: `Conversation <id> created for patient <id> — mode=ai (awaiting messages)`
+- Avoid: terse codes or raw state dumps like `chars=2`, `mode=clarification`, or `Triage result: general`.
+- Errors go in the headline with the exception type and message — the global handler in
+  `src/api/app.py` logs `Request failed: <METHOD> <path> raised <Type>: <message>` and keeps the
+  full traceback via `logger.exception`.
+
+`setup_logging()` demotes chatty third-party libraries (`httpx`, `httpcore`, `chromadb`,
+`sentence_transformers`, `posthog`) to `WARNING` so their per-request HTTP/telemetry chatter does not
+bury the application's own narrative. `uvicorn.access` is left at its default (INFO) so request logs
+remain visible; to quiet it, set its level to `WARNING` in `setup_logging()`.
 
 ## Adding a new command
 

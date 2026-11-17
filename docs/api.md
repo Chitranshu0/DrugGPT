@@ -3,7 +3,9 @@
 Base URL: `http://127.0.0.1:8000` (configured by `DRUGGPT_API_HOST` / `DRUGGPT_API_PORT`).
 
 Interactive docs: **`/docs`** (Swagger UI) and **`/redoc`** (ReDoc). Endpoints are grouped by tag:
-**Meta**, **Index**, **Patients**, **Chat**, **Reviews**.
+**Meta**, **Index**, **Patients**, **Chat**, **Reviews**, **Clinician**.
+
+All chat behavior comes from a **LangGraph state graph** in `src.rag.service`. FastAPI only validates the request and returns the graph's result as a typed `ChatResponse`. A message is routed to an educational answer (with RAG), one clarification question, emergency/scope guidance, or a clinician-review hold.
 
 ## `GET /`
 
@@ -86,25 +88,49 @@ Create a conversation.
 List messages in a conversation.
 
 ### `POST /conversations/{conversation_id}/messages`
-Send a message. Returns a `ChatResponse` with answer, sources, tool activity, status, and optional review.
+Send a message. LangGraph routes it and returns a `ChatResponse` with answer, sources, tool activity, status, and optional review.
 
 ```json
 {"message": "Explain aspirin pharmacology"}
 ```
 
-## Clinician medication review
+Possible outcomes:
+
+| Outcome | `status` | `answer_mode` |
+|---------|----------|---------------|
+| Source-grounded answer | `answered` | `source_grounded` |
+| General education (no relevant source) | `answered` | `general_education` |
+| Vague message → follow-up question | `needs_more_information` | `clarification` |
+| Emergency | `emergency_guidance` | `emergency` |
+| Out of scope | `out_of_scope` | `scope_notice` |
+| Personal decision held for clinician | `review_pending` | `clinician_review` |
+| Conversation in human mode | `review_pending` | `human_hold` |
+
+## Clinician review
+
+A review is created for personal decisions about a **medicine, test, treatment, or test report**. The AI-generated draft stays internal until a clinician decides.
 
 ### `GET /reviews?status=pending`
-List pending medication reviews.
+List pending clinician reviews.
 
 ### `GET /reviews/{review_id}`
 Get a review with its context.
 
 ### `POST /reviews/{review_id}/decision`
-Approve or reject a review.
+Approve or reject a review. On approval, `approved_guidance` becomes the user's answer; on rejection the user receives a safety refusal.
 
 ```json
 {"decision": "approved", "reviewer_name": "Dr. Smith", "approved_guidance": null, "reviewer_note": null}
+```
+
+### `GET /conversations/{id}/transcript`
+Return all messages plus any open review and its issue context (for the clinician UI).
+
+### `POST /conversations/{id}/clinician-reply`
+Write a free-text clinician reply. Closes any pending review as approved and returns the conversation to AI mode.
+
+```json
+{"message": "Discuss this with your doctor before starting it.", "reviewer_name": "Dr. Smith"}
 ```
 
 ## Legacy `POST /chat`
@@ -123,13 +149,13 @@ Response:
 }
 ```
 
-Statuses are `answered`, `out_of_scope`, `safety_refusal`, `emergency_guidance`, `review_pending`, and `clinician_review`. A missing source index or model configuration returns `503`.
+`status` values are `answered`, `out_of_scope`, `safety_refusal`, `emergency_guidance`, `review_pending`, and `needs_more_information`. A missing source index or model configuration is handled in-band (general education); model/config failures return `503`.
 
 ## ChatResponse schema
 
 - `answer`: assistant text
 - `sources`: list of `{id, title, path, page, excerpt, relevance_score}`
 - `tool_activity`: `{tool_name, message, sources_found}`
-- `status`: one of the statuses above
+- `status`: one of the `status` values above
 - `thread_id`, `review_id`, `review_status`
-- `answer_mode`: `source_grounded`, `general_education`, `emergency`, `scope_notice`, `clinician_approved`, `clinician_review`
+- `answer_mode`: `source_grounded`, `general_education`, `clarification`, `emergency`, `scope_notice`, `clinician_approved`, `clinician_review`, `clinician_reply`, `human_hold`

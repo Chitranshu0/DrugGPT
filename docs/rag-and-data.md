@@ -15,7 +15,9 @@ The index can be deleted and rebuilt at any time. It is not a source of truth: r
 
 ## Retrieval and citations
 
-At response time, `MedicalRetriever` queries Chroma and converts each result into an `Evidence` record preserving source path, title, page (converted to one-based), and relevance score. `MedicalRAGService.citations_from_evidence` maps evidence to `SourceCitation` records returned in the API response.
+RAG is invoked **only** for messages triaged as `general` or `symptom`. Clarifications, emergencies, scope notices, and personal clinical decisions (medicine, test, treatment, report) never trigger retrieval — those paths are handled by their own LangGraph nodes.
+
+On the answer path, `MedicalRetriever` queries Chroma and converts each result into an `Evidence` record preserving source path, title, page (converted to one-based), and relevance score. `MedicalRAGService.citations_from_evidence` maps evidence to `SourceCitation` records returned in the API response.
 
 Only chunks with `score >= DRUGGPT_RELEVANCE_THRESHOLD` are passed to the LLM; otherwise the service answers from general educational information and sets `answer_mode` to `general_education`.
 

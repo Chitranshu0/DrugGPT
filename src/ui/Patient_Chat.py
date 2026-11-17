@@ -4,7 +4,6 @@ Run with ``streamlit run src/ui/Patient_Chat.py`` (:8501).
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -54,7 +53,9 @@ with st.sidebar:
         labels = {f"{item['title']} ({item['id'][:8]})": item for item in conversations}
         conversation = labels[st.selectbox("Conversation", labels)]
     st.divider()
-    st.caption("Medication-related personal guidance is paused for clinician review before it appears here.")
+    st.caption(
+        "Personal decisions about medicines, tests, treatments, and test reports are paused for clinician review."
+    )
 
 
 @st.fragment(run_every="3s")
@@ -70,6 +71,8 @@ def render_transcript(conversation_id: str) -> None:
             metadata = message.get("metadata", {})
             if metadata.get("answer_mode") == "general_education":
                 st.caption("General educational information — not a diagnosis or prescription.")
+            if metadata.get("answer_mode") == "clarification":
+                st.caption("Follow-up question to better understand your request.")
             show_sources(metadata.get("sources", []))
 
 
@@ -98,7 +101,9 @@ if prompt := st.chat_input("Ask a health or medical question..."):
             if answer_mode == "human_hold":
                 st.info("A clinician has taken over this conversation. They will reply here directly — check back shortly.")
             elif result["status"] == "review_pending":
-                st.info("A clinician review is pending. Check back here after it is approved or rejected.")
+                st.info("A clinician review is pending. Check back here after it has been reviewed.")
+            elif answer_mode == "clarification":
+                st.caption("I need a little more detail to help — please answer the question above.")
             elif answer_mode == "general_education":
                 st.caption("General educational information — not a diagnosis or prescription.")
             show_sources(result.get("sources", []))

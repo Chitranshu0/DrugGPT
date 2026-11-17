@@ -1,4 +1,4 @@
-"""Persistent conversational medical agent with clinician medication review."""
+"""Persistent conversational medical agent with LangGraph routing and clinician review."""
 
 import logging
 import sqlite3
@@ -17,10 +17,21 @@ from typing_extensions import TypedDict
 from src.core.config import Settings, settings
 from src.core.models import ChatResponse, ChatStatus, Evidence, MedicationReview, SourceCitation, ToolActivity
 from src.core.persistence import LocalStore
-from src.rag.guardrails import EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
+from src.rag.guardrails import CLINICIAN_REVIEW_TRIAGE, EMERGENCY_MESSAGE, OUT_OF_SCOPE_MESSAGE, Triage, triage_query
 from src.rag.retrieval import MedicalRetriever, VectorDatabaseNotReadyError
 
 logger = logging.getLogger("druggpt.rag.service")
+
+# Plain-language descriptions of where each triage result sends the message.
+# Used in logs so a developer can read the flow without decoding enum values.
+_TRIAGE_NEXT_STEP = {
+    Triage.GENERAL.value: "local evidence lookup, then an educational answer",
+    Triage.SYMPTOM.value: "local evidence lookup, then an educational answer",
+    Triage.NEEDS_MORE_INFORMATION.value: "clarifying question (no evidence lookup)",
+    Triage.EMERGENCY.value: "fixed emergency guidance (no LLM call)",
+    Triage.OUT_OF_SCOPE.value: "fixed out-of-scope notice (no LLM call)",
+    **{triage.value: "clinician review gate (no AI decision)" for triage in CLINICIAN_REVIEW_TRIAGE},
+}
 
 GROUNDED_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a helpful medical education assistant.
 Answer the user's question clearly and naturally, using the source excerpts below. Do not diagnose or prescribe.
@@ -50,6 +61,18 @@ information a clinician should verify (allergies, interactions, contraindication
 
 Patient context: {patient_context}
 Question: {question}""")
+CLARIFY_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a medical education assistant having a conversation
+to understand what someone wants to learn or discuss. Their last message was too unclear to answer safely.
+Ask ONE short, friendly follow-up question to clarify what they want help with. Do not give medical information,
+a diagnosis, or any advice in this follow-up. Keep it under two sentences.
+
+Patient context (use only if relevant):
+{patient_context}
+
+Recent conversation:
+{history}
+
+Message: {message}""")
 
 
 class AgentState(TypedDict, total=False):
@@ -85,7 +108,7 @@ def citations_from_evidence(evidence: list[Evidence]) -> list[SourceCitation]:
 
 
 class MedicalRAGService:
-    """Coordinates memory, retrieval, general education, and review-required medication drafts."""
+    """Routes conversation through LangGraph: triage, RAG answers, clarification, and clinician review."""
 
     def __init__(
         self,
@@ -131,7 +154,11 @@ class MedicalRAGService:
             return text
         # Some reasoning models return empty content when reasoning consumes the
         # whole token budget. Retry once with a larger budget before giving up.
-        logger.warning("LLM returned empty content; retrying with a larger token budget")
+        logger.warning(
+            "LLM %s returned empty content (reasoning likely consumed the token budget); "
+            "retrying once with a larger budget",
+            self.settings.llm_model,
+        )
         if hasattr(llm, "max_tokens"):
             try:
                 llm.max_tokens = max(llm.max_tokens or 0, 1500) * 2
@@ -150,7 +177,12 @@ class MedicalRAGService:
         except RuntimeError:
             raise
         except Exception as error:  # surface upstream failures as a graceful 503
-            logger.exception("LLM call failed: %s", error)
+            logger.exception(
+                "LLM call failed for model %s (%s): %s - request will return 503",
+                self.settings.llm_model,
+                type(error).__name__,
+                error,
+            )
             raise RuntimeError(
                 f"The language model is unavailable right now ({type(error).__name__}). "
                 "Please try again shortly."
@@ -164,7 +196,7 @@ class MedicalRAGService:
 
     def _triage_node(self, state: AgentState) -> AgentState:
         triage = triage_query(state["question"]).value
-        logger.info("Triage result: %s", triage)
+        logger.info("Triage: %s -> %s", triage, _TRIAGE_NEXT_STEP.get(triage, "unhandled route"))
         return {"triage": triage}
 
     def _load_context_node(self, state: AgentState) -> AgentState:
@@ -184,10 +216,11 @@ class MedicalRAGService:
             logger.warning("Vector index not ready; answering from general education")
         acceptable = [item for item in evidence if item.score >= self.settings.relevance_threshold]
         logger.info(
-            "Evidence retrieved=%d, above threshold (%.2f)=%d",
+            "Evidence search: %d chunks retrieved, %d met relevance threshold %.2f -> %s",
             len(evidence),
-            self.settings.relevance_threshold,
             len(acceptable),
+            self.settings.relevance_threshold,
+            "grounded answer with local citations" if acceptable else "general education fallback (no citations)",
         )
         if acceptable:
             context = "\n\n".join(
@@ -217,7 +250,7 @@ class MedicalRAGService:
             history=state["history"],
             question=state["question"],
         )
-        logger.info("No relevant local sources; answered with general education")
+        logger.info("No local source met the threshold - answered from general education without citations")
         return {
             "answer": answer,
             "status": ChatStatus.ANSWERED.value,
@@ -236,17 +269,38 @@ class MedicalRAGService:
     def _out_of_scope_node(self, state: AgentState) -> AgentState:
         return {"answer": OUT_OF_SCOPE_MESSAGE, "status": ChatStatus.OUT_OF_SCOPE.value, "answer_mode": "scope_notice"}
 
+    def _clarify_node(self, state: AgentState) -> AgentState:
+        question = self._generate(
+            CLARIFY_PROMPT,
+            patient_context=state["patient_context"],
+            history=state["history"],
+            message=state["question"],
+        )
+        return {
+            "answer": question,
+            "status": ChatStatus.NEEDS_MORE_INFORMATION.value,
+            "answer_mode": "clarification",
+            "sources": [],
+        }
+
     def _review_node(self, state: AgentState) -> AgentState:
+        issue_type = state["triage"]
         draft = self._generate(DRAFT_PROMPT, patient_context=state["patient_context"], question=state["question"])
         review = self.store.create_or_get_review(
             state["patient_id"], state["conversation_id"], state["message_id"], state["thread_id"], draft,
-            {"patient_context": state["patient_context"], "question": state["question"], "history": state["history"]},
+            {"issue_type": issue_type, "patient_context": state["patient_context"],
+             "question": state["question"], "history": state["history"]},
         )
-        logger.info("Medication review %s created for conversation %s", review.id, state["conversation_id"])
+        logger.info(
+            "Clinician review %s created for conversation %s (issue=%s) - pausing the graph until a decision is recorded",
+            review.id,
+            state["conversation_id"],
+            issue_type,
+        )
         decision = interrupt({
-            "type": "medication_review", "review_id": review.id, "patient_id": review.patient_id,
-            "conversation_id": review.conversation_id, "draft_guidance": review.draft_guidance,
-            "context": self.store.review_context(review.id),
+            "type": "clinician_review", "review_id": review.id, "issue_type": issue_type,
+            "patient_id": review.patient_id, "conversation_id": review.conversation_id,
+            "draft_guidance": review.draft_guidance, "context": self.store.review_context(review.id),
         })
         if decision.get("decision") == "approved":
             return {
@@ -255,7 +309,7 @@ class MedicalRAGService:
             }
         return {
             "answer": (
-                "The clinician reviewer did not approve medication guidance for this request. "
+                "The clinician reviewer did not approve guidance for this request. "
                 "Please contact a healthcare professional for personalised care."
             ),
             "status": ChatStatus.SAFETY_REFUSAL.value,
@@ -272,19 +326,24 @@ class MedicalRAGService:
         graph.add_node("triage", self._triage_node)
         graph.add_node("load_context", self._load_context_node)
         graph.add_node("answer", self._general_answer_node)
+        graph.add_node("clarify", self._clarify_node)
         graph.add_node("emergency", self._emergency_node)
         graph.add_node("out_of_scope", self._out_of_scope_node)
         graph.add_node("medication_review", self._review_node)
         graph.add_edge(START, "triage")
         graph.add_conditional_edges("triage", self._route, {
             Triage.GENERAL.value: "load_context", Triage.SYMPTOM.value: "load_context",
-            Triage.MEDICATION_REVIEW.value: "load_context", Triage.EMERGENCY.value: "emergency",
-            Triage.OUT_OF_SCOPE.value: "out_of_scope",
+            Triage.NEEDS_MORE_INFORMATION.value: "load_context",
+            **{triage.value: "load_context" for triage in CLINICIAN_REVIEW_TRIAGE},
+            Triage.EMERGENCY.value: "emergency", Triage.OUT_OF_SCOPE.value: "out_of_scope",
         })
         graph.add_conditional_edges("load_context", self._route, {
-            Triage.GENERAL.value: "answer", Triage.SYMPTOM.value: "answer", Triage.MEDICATION_REVIEW.value: "medication_review",
+            Triage.GENERAL.value: "answer", Triage.SYMPTOM.value: "answer",
+            Triage.NEEDS_MORE_INFORMATION.value: "clarify",
+            **{triage.value: "medication_review" for triage in CLINICIAN_REVIEW_TRIAGE},
         })
         graph.add_edge("answer", END)
+        graph.add_edge("clarify", END)
         graph.add_edge("emergency", END)
         graph.add_edge("out_of_scope", END)
         graph.add_edge("medication_review", END)
@@ -299,10 +358,17 @@ class MedicalRAGService:
         )
 
     def send_message(self, conversation_id: str, message: str) -> ChatResponse:
-        logger.info("Processing message for conversation %s (chars=%d)", conversation_id, len(message))
+        logger.info(
+            "LangGraph flow started for conversation %s (%d chars) - classifying the question",
+            conversation_id,
+            len(message),
+        )
         conversation = self.store.get_conversation(conversation_id)
         if conversation.mode == "human":
-            logger.info("Conversation %s is in human handoff; queuing user message for the clinician", conversation_id)
+            logger.info(
+                "Conversation %s is in HUMAN mode - holding the message for a clinician (no LLM call)",
+                conversation_id,
+            )
             self.store.add_message(conversation_id, "user", message, status="queued_for_clinician")
             thread_id = f"conversation:{conversation_id}:message:{uuid4()}"
             response = ChatResponse(
@@ -317,7 +383,9 @@ class MedicalRAGService:
                 conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
             )
             logger.info(
-                "Message queued for clinician handoff (conversation=%s, mode=%s)", conversation_id, response.answer_mode
+                "Message queued in conversation %s (answer_mode=%s) - patient asked to check back for the clinician reply",
+                conversation_id,
+                response.answer_mode,
             )
             return response
         user_message = self.store.add_message(conversation_id, "user", message)
@@ -329,10 +397,14 @@ class MedicalRAGService:
         )
         review = self.store.find_pending_review(thread_id)
         if review:
-            logger.info("Message %s routed to clinician review %s", user_message.id, review.id)
+            logger.info(
+                "Message %s requires clinician review %s - returning review_pending to the patient",
+                user_message.id,
+                review.id,
+            )
             response = ChatResponse(
-                answer="I’ve prepared this medication-related request for clinician review. "
-                "You will receive guidance here after it has been approved.",
+                answer="I’ve prepared this personal health request for clinician review. "
+                "You will receive guidance here after it has been reviewed.",
                 status=ChatStatus.REVIEW_PENDING,
                 thread_id=thread_id,
                 review_id=review.id,
@@ -345,12 +417,19 @@ class MedicalRAGService:
             conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
         logger.info(
-            "Message %s answered (status=%s, mode=%s)", user_message.id, response.status.value, response.answer_mode
+            "Message %s answered: status=%s, answer_mode=%s - assistant reply stored",
+            user_message.id,
+            response.status.value,
+            response.answer_mode,
         )
         return response
 
     def resume_review(self, review: MedicationReview) -> ChatResponse:
-        logger.info("Resuming graph for review %s (%s)", review.id, review.status)
+        logger.info(
+            "Resuming LangGraph for review %s (decision=%s) with the clinician's input",
+            review.id,
+            review.status,
+        )
         thread_id = self.store.review_graph_thread_id(review.id)
         result = self.graph.invoke(
             Command(resume={"decision": review.status, "approved_guidance": review.approved_guidance or ""}),
@@ -360,7 +439,12 @@ class MedicalRAGService:
         self.store.add_message(
             review.conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
         )
-        logger.info("Review %s resumed with status=%s", review.id, response.status.value)
+        logger.info(
+            "Review %s resolved - chat resumed: status=%s, answer_mode=%s",
+            review.id,
+            response.status.value,
+            response.answer_mode,
+        )
         return response
 
     def reply_as_clinician(
@@ -371,8 +455,12 @@ class MedicalRAGService:
         review_id: str | None = None,
     ) -> ChatResponse:
         """Record a clinician's free-text reply, close any pending review, and return the conversation to AI mode."""
-        logger.info("Clinician %s replying in conversation %s", reviewer_name, conversation_id)
-        conversation = self.store.get_conversation(conversation_id)
+        logger.info(
+            "Recording clinician reply in conversation %s (clinician=%s) - will close any pending review and restore AI mode",
+            conversation_id,
+            reviewer_name,
+        )
+        self.store.get_conversation(conversation_id)
         pending = self.store.open_review_for_conversation(conversation_id)
         effective_review_id = review_id or (pending.id if pending else None)
         if effective_review_id is None:
@@ -401,7 +489,11 @@ class MedicalRAGService:
             "clinician_reply",
             {"reviewer_name": reviewer_name, "review_id": effective_review_id},
         )
-        logger.info("Clinician reply recorded (conversation=%s, mode back to ai)", conversation_id)
+        logger.info(
+            "Clinician reply stored in conversation %s (review=%s) - conversation mode restored to ai",
+            conversation_id,
+            effective_review_id,
+        )
         return response
 
     def answer(self, question: str, thread_id: str) -> ChatResponse:

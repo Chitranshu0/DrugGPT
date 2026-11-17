@@ -1,3 +1,5 @@
+import pytest
+
 from src.core.models import ChatStatus, Evidence
 from src.rag.service import MedicalRAGService, citations_from_evidence
 from tests.conftest import FakeLLM, FakeRetriever, FakeStore
@@ -68,6 +70,69 @@ def test_send_message_human_handoff_queues_for_clinician(app_settings, fake_stor
     assert response.review_id is None
     roles = [m.role for m in fake_store.messages["conv-1"]]
     assert roles == ["user", "assistant"]
+
+
+class _CountingRetriever(FakeRetriever):
+    def __init__(self, evidence=None) -> None:
+        super().__init__(evidence)
+        self.calls = 0
+
+    def search(self, query):
+        self.calls += 1
+        return super().search(query)
+
+
+class _Review:
+    id = "review-1"
+    patient_id = "patient-1"
+    conversation_id = "conv-1"
+    message_id = "msg-1"
+    draft_guidance = "Internal draft for clinician review."
+    status = "pending"
+
+
+class _ReviewStore(FakeStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.review = _Review()
+
+    def create_or_get_review(self, *args, **kwargs):
+        return self.review
+
+    def review_context(self, review_id: str):
+        return {"issue_type": "personal_health_decision"}
+
+    def find_pending_review(self, thread_id: str):
+        return self.review
+
+
+def test_unclear_message_asks_follow_up_without_rag(app_settings):
+    retriever = _CountingRetriever()
+    service = MedicalRAGService(retriever, app_settings, llm_factory=FakeLLM, store=FakeStore())
+    response = service.send_message("conv-1", "help")
+    assert response.status == ChatStatus.NEEDS_MORE_INFORMATION
+    assert response.answer_mode == "clarification"
+    assert response.sources == []
+    assert retriever.calls == 0
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What blood test should I get?",
+        "What treatment should I start?",
+        "What does my blood test report mean?",
+        "What medicine should I take?",
+    ],
+)
+def test_personal_health_decisions_pause_for_clinician_without_rag(app_settings, message):
+    retriever = _CountingRetriever()
+    service = MedicalRAGService(retriever, app_settings, llm_factory=FakeLLM, store=_ReviewStore())
+    response = service.send_message("conv-1", message)
+    assert response.status == ChatStatus.REVIEW_PENDING
+    assert response.answer_mode == "clinician_review"
+    assert response.review_id == "review-1"
+    assert retriever.calls == 0
 
 
 def test_reply_as_clinician_closes_review_and_returns_ai_mode(app_settings):

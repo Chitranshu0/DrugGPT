@@ -68,13 +68,14 @@ class _StoreWithPendingReview(FakeStore):
         }
 
 
-def test_conversation_transcript_returns_messages_and_open_review(app_settings):
-    store = _StoreWithPendingReview()
+def test_conversation_transcript_returns_messages_and_no_open_review(app_settings):
+    store = FakeStore()
     app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=store))
     client = TestClient(app)
     body = client.get("/conversations/conv-1/transcript").json()
     assert "messages" in body
     assert body["open_review"] is None
+    assert body["context"] is None
 
 
 def test_clinician_reply_endpoint(app_settings):

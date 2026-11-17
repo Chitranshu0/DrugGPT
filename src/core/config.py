@@ -23,13 +23,20 @@ def _project_path(value: str) -> Path:
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure project-wide logging with a clear, developer-friendly format."""
+    """Configure project-wide logging with a clear, developer-friendly format.
+
+    Application logs (``druggpt.*``) stay at the requested level so the story of
+    each request is visible. Chatty third-party libraries are demoted to WARNING
+    so their per-call HTTP/telemetry chatter does not drown out that narrative.
+    """
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,
     )
+    for noisy_logger in ("httpx", "httpcore", "chromadb", "sentence_transformers", "posthog"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
 @dataclass(frozen=True)

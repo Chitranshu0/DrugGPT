@@ -5,9 +5,12 @@ DrugGPT is a **local-first, source-grounded medical education RAG app** (FastAPI
 Streamlit + LangGraph + ChromaDB + OpenRouter). It is **not** a clinical tool.
 
 ## Purpose
-Answer medical science / drug-study questions from locally indexed PDFs, with
-clinician review gating for medication-related requests. Patients chat with an AI;
-doctors can intervene in the same Streamlit UI.
+Answer medical science / drug-study questions conversationally. LangGraph routes
+each message: educational questions use RAG over locally indexed PDFs; vague
+messages get one clarifying question; personal clinical decisions (medicine,
+test, treatment, test report) pause for clinician review. Emergency and
+out-of-scope messages never call the LLM. Patients chat with an AI; doctors can
+intervene in the same Streamlit UI.
 
 ## How to run (the only supported commands)
 Terminal 1 — FastAPI backend (:8000):
@@ -31,8 +34,10 @@ ruff check .
 ## Architecture
 - `src/api/app.py`: `create_app(service=None)`; FastAPI app with typed REST routes.
 - `src/rag/service.py`: `MedicalRAGService`; LangGraph flow
-  `triage -> load_context -> answer | medication_review | emergency | out_of_scope`;
-  `guardrails.py` is deterministic regex triage.
+  `triage -> load_context -> answer (RAG) | clarify | medication_review | emergency | out_of_scope`.
+  RAG runs only for `general`/`symptom`. `guardrails.py` is deterministic regex
+  triage; its `CLINICIAN_REVIEW_TRIAGE` set (medication, test, treatment, report)
+  routes to the review node.
 - `src/rag/indexing.py`: rebuilds Chroma collection `medical_rag` from non-recursive
   `data/raw/*.pdf` (1000/150 chunks, `all-MiniLM-L6-v2`).
 - `src/rag/retrieval.py`: returns `Evidence` with source/path/page/score.
@@ -46,8 +51,11 @@ ruff check .
 ## Non-obvious behavior (do not break)
 - No index / no chunk >= `DRUGGPT_RELEVANCE_THRESHOLD` still returns HTTP 200 with
   `answer_mode="general_education"`. Only LLM/config failures return 503.
-- Medication requests use LangGraph `interrupt()`; the review row is saved before the
-  interrupt and resumed with `Command(resume=...)` keyed by `graph_thread_id`.
+- Personal clinical decisions use LangGraph `interrupt()`; the review row is saved
+  before the interrupt and resumed with `Command(resume=...)` keyed by
+  `graph_thread_id`. `issue_type` is stored in the review context.
+- Vague messages ("help", "hi there") return `status="needs_more_information"`,
+  `answer_mode="clarification"` from the `clarify` node with no RAG call.
 - `Settings` is a frozen dataclass re-reading env on each instantiation.
 - Tests use `dataclasses.replace(Settings(), ...)` and inject fakes.
 

@@ -175,7 +175,11 @@ class LocalStore:
         self.get_patient(patient_id)
         conversation_id, now = str(uuid4()), _now()
         with self._connection() as conn:
-            conn.execute("INSERT INTO conversations VALUES (?, ?, ?, ?, ?)", (conversation_id, patient_id, title, now, now))
+            conn.execute(
+                "INSERT INTO conversations (id, patient_id, title, created_at, updated_at, mode) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (conversation_id, patient_id, title, now, now, "ai"),
+            )
         return self.get_conversation(conversation_id)
 
     def get_conversation(self, conversation_id: str) -> Conversation:
