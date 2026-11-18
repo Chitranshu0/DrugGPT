@@ -78,6 +78,17 @@ class Settings:
     api_host: str = field(default_factory=lambda: os.getenv("DRUGGPT_API_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_API_PORT", "8000")))
     ui_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_UI_PORT", "8501")))
+    # Eval-only model/key chain. The primary OpenRouter key is never overwritten;
+    # the fallback key is used only when a primary call fails.
+    eval_model: str = field(
+        default_factory=lambda: os.getenv("DRUGGPT_EVAL_MODEL", "google/gemma-4-31b-it:free")
+    )
+    eval_fallback_api_key: str | None = field(
+        default_factory=lambda: os.getenv("OPENROUTER_FALLBACK_API_KEY")
+    )
+    eval_fallback_model: str = field(
+        default_factory=lambda: os.getenv("DRUGGPT_EVAL_FALLBACK_MODEL", "google/gemma-4-31b-it:free")
+    )
 
     @classmethod
     def from_env(cls) -> Settings:

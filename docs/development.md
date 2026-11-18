@@ -24,6 +24,38 @@ pytest tests/test_service.py tests/test_api.py          # streaming, guardrails,
 
 `src.core.runtime.configure_runtime()` is called first in every entrypoint (uvicorn target and Streamlit pages). It disables TensorFlow before heavy imports and suppresses the Python-EOL warning from `google.api_core`. Add the same call to any new entrypoint.
 
+## DeepEval build loop
+
+`tests/evals/` holds the ground-truth suite used during development, not just a final gate:
+
+```bash
+# On Windows, rich's Unicode progress output needs UTF-8:
+$env:PYTHONIOENCODING = "utf-8"
+# The free OpenRouter tier is slow: allow long judge calls.
+$env:DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE = "900"
+deepeval test run tests/evals/test_druggpt.py   # run the eval suite
+python -m tests.evals.generate_goldens          # synthesize RAG goldens from data/raw/*.pdf
+```
+
+By default both the app LLM and the judge use the OpenRouter key with the free
+`DRUGGPT_EVAL_MODEL` (default `google/gemma-4-31b-it:free`). If a second key is
+configured as `OPENROUTER_FALLBACK_API_KEY`, it is attached as a LangChain
+fallback and is only used when the primary call fails (429, 5xx, timeout) or
+returns empty content — the primary key is never overwritten. Override the
+fallback model with `DRUGGPT_EVAL_FALLBACK_MODEL`. The OpenRouter free tier has
+a daily request cap; the fallback key keeps the eval loop running past it.
+
+The suite injects a `CallbackHandler` from DeepEval's LangGraph integration (via
+`MedicalRAGService.send_message(..., callbacks=...)`), so every graph/node/LLM/tool span is
+evaluable without hand-rolled `@observe`. `tests/evals/judge.py` adapts the app's OpenRouter
+model to `DeepEvalBaseLLM`; no OpenAI key or Confident AI account is needed. Goldens live in
+`tests/evals/goldens.json`: fixed safety routes are asserted deterministically, RAG answers are
+scored by relevancy, faithfulness, a no-diagnosis GEval, and trajectory metrics. Generated goldens
+are written to gitignored `data/evals/` before being curated into that file.
+
+When a metric fails, fix the app (prompt, retrieval scoping, guardrail, tool wiring) — never the
+metric, threshold, or golden — then re-run the suite to confirm improvement without regressions.
+
 ## Project layout
 
 ```text

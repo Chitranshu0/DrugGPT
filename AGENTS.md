@@ -13,6 +13,10 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
   `druggpt` only works after an editable install in the active env)
 - Tests: `pytest` (offline, ~65 tests); single test:
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
+- DeepEval build loop: `deepeval test run tests/evals/test_druggpt.py` (real index + OpenRouter;
+  see "DeepEval build loop" in `docs/development.md`). Goldens: `tests/evals/goldens.json`.
+  Primary model `DRUGGPT_EVAL_MODEL` (default `google/gemma-4-31b-it:free`); secondary OpenRouter
+  key `OPENROUTER_FALLBACK_API_KEY` is used only on primary failure. Never overwrite `OPENROUTER_API_KEY`.
 - Lint: `ruff check .` (line length 128, py311, rules E/F/I/UP). No CI or pre-commit;
   run lint + tests manually.
 - Docs use bash (`cp`, `mkdir -p`); on Windows use `Copy-Item` / `New-Item -ItemType Directory -Force`.

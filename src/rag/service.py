@@ -45,6 +45,9 @@ GROUNDED_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a helpful
 Answer the user's question clearly and naturally, using the source excerpts below. Do not diagnose or prescribe.
 Mention uncertainty when the excerpts are incomplete.
 
+Answer directly and concisely in plain language. Describe what the topic is used for rather than quoting numeric
+doses, treatment regimens, or study percentages. Do not comment on the excerpts themselves or on how you used them.
+
 Source excerpts:
 {context}
 
@@ -385,7 +388,14 @@ class MedicalRAGService:
             review_status=state.get("review_status"), answer_mode=state.get("answer_mode", "general_education"),
         )
 
-    def send_message(self, conversation_id: str, message: str) -> ChatResponse:
+    def send_message(
+        self, conversation_id: str, message: str, callbacks: list[Any] | None = None
+    ) -> ChatResponse:
+        """Send a message through the graph.
+
+        ``callbacks`` is forwarded to ``graph.invoke`` so eval suites can attach
+        a DeepEval ``CallbackHandler`` per call without changing graph behavior.
+        """
         started = time.perf_counter()
         logger.info(
             "LangGraph flow started for conversation %s (%d chars) - classifying the question",
@@ -419,10 +429,13 @@ class MedicalRAGService:
             return response
         user_message = self.store.add_message(conversation_id, "user", message)
         thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
+        graph_config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+        if callbacks:
+            graph_config["callbacks"] = callbacks
         result = self.graph.invoke(
             {"question": message, "patient_id": conversation.patient_id, "conversation_id": conversation_id,
              "message_id": user_message.id, "thread_id": thread_id},
-            config={"configurable": {"thread_id": thread_id}},
+            config=graph_config,
         )
         review = self.store.find_pending_review(thread_id)
         if review:
@@ -454,7 +467,9 @@ class MedicalRAGService:
         )
         return response
 
-    def send_message_stream(self, conversation_id: str, message: str) -> Iterator[dict[str, Any]]:
+    def send_message_stream(
+        self, conversation_id: str, message: str, callbacks: list[Any] | None = None
+    ) -> Iterator[dict[str, Any]]:
         """Yield token events for the answer path, then one terminal response event.
 
         Routing, guardrails and the clinician-review gate are unchanged: every
@@ -467,7 +482,7 @@ class MedicalRAGService:
             Triage.GENERAL.value,
             Triage.SYMPTOM.value,
         }:
-            response = self.send_message(conversation_id, message)
+            response = self.send_message(conversation_id, message, callbacks=callbacks)
             yield {"type": "response", "response": response.model_dump(mode="json")}
             return
 
