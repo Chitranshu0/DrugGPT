@@ -15,7 +15,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
 - DeepEval build loop: `deepeval test run tests/evals/test_druggpt.py` (real index + OpenRouter;
   see "DeepEval build loop" in `docs/development.md`). Goldens: `tests/evals/goldens.json`.
-  Primary model `DRUGGPT_EVAL_MODEL` (default `google/gemma-4-31b-it:free`); secondary OpenRouter
+  Primary model `DRUGGPT_EVAL_MODEL` (default `inclusionai/ling-3.2-flash:free`); secondary OpenRouter
   key `OPENROUTER_FALLBACK_API_KEY` is used only on primary failure. Never overwrite `OPENROUTER_API_KEY`.
 - Lint: `ruff check .` (line length 128, py311, rules E/F/I/UP). No CI or pre-commit;
   run lint + tests manually.

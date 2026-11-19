@@ -8,6 +8,7 @@ is only used when the primary call fails. Nothing overwrites the primary key.
 
 from __future__ import annotations
 
+import json
 import time
 
 from src.core.config import Settings
@@ -27,8 +28,9 @@ def _client(model: str, api_key: str, max_tokens: int, temperature: float) -> Ch
         api_key=api_key,
         temperature=temperature,
         max_tokens=max_tokens,
-        max_retries=0,
-        request_timeout=60,
+        # The SDK otherwise retries 429s with hour-long backoff, which prevents
+        # LangChain's `with_fallbacks` from ever switching to the second key.
+        model_kwargs={"retries": None, "timeout_ms": 10000},
     )
 
 
@@ -68,10 +70,23 @@ class EvalJudge(DeepEvalBaseLLM):
     @staticmethod
     def _prepare(prompt: str, kwargs: dict) -> str:
         # DeepEval's synthesizer requests structured output via `schema=`.
-        # The chat client cannot enforce a schema, so ask for plain JSON.
-        if kwargs.get("schema") is not None:
-            return f"{prompt}\nReturn your answer as valid JSON matching the requested schema and nothing else."
+        # The chat client cannot enforce a schema, so ask for plain JSON with
+        # exactly the fields the schema declares, then parse it in _parse.
+        schema = kwargs.get("schema")
+        if schema is not None:
+            fields = ", ".join(getattr(schema, "model_fields", {}).keys())
+            return (
+                f"{prompt}\nRespond with a single JSON object with exactly these keys: {fields}. "
+                "No markdown and no other text."
+            )
         return prompt
+
+    @staticmethod
+    def _parse(text: str, schema):
+        if schema is None:
+            return text
+        data = json.loads(text[text.find("{") : text.rfind("}") + 1])
+        return schema(**data)
 
     def _text(self, response: object) -> str:
         return str(getattr(response, "content", "") or "").strip()
@@ -82,30 +97,33 @@ class EvalJudge(DeepEvalBaseLLM):
         self._fallback = build_fallback_client(budget, self._temperature)
         time.sleep(2 * (attempt + 1))
 
-    def generate(self, prompt: str, **kwargs: object) -> str:
+    def generate(self, prompt: str, **kwargs: object):
+        schema = kwargs.get("schema")
         prompt = self._prepare(prompt, kwargs)
         for attempt in range(3):
-            text = self._text(self._client.invoke(prompt))
-            if text:
-                return text
-            # Empty content is not an exception, so `with_fallbacks` won't fire.
-            if self._fallback is not None:
-                text = self._text(self._fallback.invoke(prompt))
-                if text:
-                    return text
+            for client in filter(None, (self._client, self._fallback)):
+                text = self._text(client.invoke(prompt))
+                if not text:
+                    continue  # empty content is not an exception
+                try:
+                    return self._parse(text, schema)
+                except (ValueError, TypeError, KeyError):
+                    continue  # malformed structured output, try the next client
             self._rebuild(attempt)
         raise RuntimeError("Judge model returned empty content three times in a row.")
 
-    async def a_generate(self, prompt: str, **kwargs: object) -> str:
+    async def a_generate(self, prompt: str, **kwargs: object):
+        schema = kwargs.get("schema")
         prompt = self._prepare(prompt, kwargs)
         for attempt in range(3):
-            text = self._text(await self._client.ainvoke(prompt))
-            if text:
-                return text
-            if self._fallback is not None:
-                text = self._text(await self._fallback.ainvoke(prompt))
-                if text:
-                    return text
+            for client in filter(None, (self._client, self._fallback)):
+                text = self._text(await client.ainvoke(prompt))
+                if not text:
+                    continue
+                try:
+                    return self._parse(text, schema)
+                except (ValueError, TypeError, KeyError):
+                    continue
             self._rebuild(attempt)
         raise RuntimeError("Judge model returned empty content three times in a row.")
 

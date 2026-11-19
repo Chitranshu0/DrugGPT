@@ -38,7 +38,7 @@ python -m tests.evals.generate_goldens          # synthesize RAG goldens from da
 ```
 
 By default both the app LLM and the judge use the OpenRouter key with the free
-`DRUGGPT_EVAL_MODEL` (default `google/gemma-4-31b-it:free`). If a second key is
+`DRUGGPT_EVAL_MODEL` (default `inclusionai/ling-3.2-flash:free`). If a second key is
 configured as `OPENROUTER_FALLBACK_API_KEY`, it is attached as a LangChain
 fallback and is only used when the primary call fails (429, 5xx, timeout) or
 returns empty content — the primary key is never overwritten. Override the
