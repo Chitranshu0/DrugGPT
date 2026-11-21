@@ -7,10 +7,8 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 
 ## Commands (PowerShell on this machine)
 - Install: `python -m venv .venv`, `.\.venv\Scripts\Activate.ps1`, `pip install -e ".[dev]"`
-- Backend :8000: `uvicorn main:app --reload`
+- Backend :8000: `uvicorn src.main:app --reload`
 - Frontend :8501: `streamlit run src/ui/Patient_Chat.py --server.port 8501`
-- Maintenance: `python -m src.cli index|check|test` (prefer `python -m src.cli`;
-  `druggpt` only works after an editable install in the active env)
 - Tests: `pytest` (offline, ~65 tests); single test:
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
 - DeepEval build loop: `deepeval test run tests/evals/test_druggpt.py` (real index + OpenRouter;
@@ -23,7 +21,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 
 ## Architecture
 - `src/api/app.py`: FastAPI `create_app(service=None)`; inject a service in tests.
-  `main.py` exposes `app` lazily via module `__getattr__` for `uvicorn main:app`.
+  `src/main.py` exposes `app` lazily via module `__getattr__` for `uvicorn src.main:app`.
 - `src/rag/service.py`: LangGraph flow `triage -> load_context -> answer |
   medication_review | emergency | out_of_scope`; `guardrails.py` is deterministic regex triage.
 - `src/rag/indexing.py`: rebuilds Chroma collection `medical_rag` from non-recursive
@@ -41,7 +39,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
   is found" wording was stale).
 - Chroma uses **cosine space** with normalized embeddings and `schema_version=2`. Scores are
   `clamp(1 - cosine_distance, 0, 1)`. Older L2 indexes report `needs_rebuild=true` and must be
-  recreated with `python -m src.cli index`; until then answers have no citations.
+  recreated; until then answers have no citations.
 - `MedicalRetriever` caches the embedder, Chroma client and store; `rebuild_index()` calls
   `invalidate_caches()`. Keep that pairing intact or rebuilt indexes will be shadowed.
 - Clarifications are deterministic (no LLM call) unless `DRUGGPT_LLM_CLARIFY=1`.

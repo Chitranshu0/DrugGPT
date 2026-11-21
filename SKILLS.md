@@ -15,18 +15,18 @@ intervene in the same Streamlit UI.
 ## How to run (the only supported commands)
 Terminal 1 — FastAPI backend (:8000):
 ```
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 Terminal 2 — Streamlit UI (:8501):
 ```
 streamlit run src/ui/Patient_Chat.py --server.port 8501
 ```
-There is no `python main.py` and no `python app.py`. `main.py` exposes a lazy
+There is no `python main.py` and no `python app.py`. `src/main.py` exposes a lazy
 `app` via PEP 562 `__getattr__` for uvicorn.
 
-Maintenance (from repo root):
+Checks (from repo root):
 ```
-python -m src.cli index|check|test
+pytest
 pytest tests/test_service.py::test_citations_preserve_page_and_source
 ruff check .
 ```

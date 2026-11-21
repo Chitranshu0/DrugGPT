@@ -14,7 +14,7 @@ It is designed for students and researchers. It is not a diagnostic, prescribing
 - Human-in-the-loop for personal decisions about medicines, tests, treatments, and test reports
 - Educational-only scope — not a diagnostic, prescribing, or emergency-care service
 - Pytest and Ruff configuration for repeatable development
-- Two entrypoints: `uvicorn main:app` (backend) and `streamlit run` (frontend)
+- Two entrypoints: `uvicorn src.main:app` (backend) and `streamlit run` (frontend)
 
 ## Architecture
 
@@ -36,7 +36,7 @@ mkdir -p data/raw
 # Copy only licensed medical PDFs into data/raw/
 
 # Terminal 1: FastAPI backend (:8000)
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit frontend (:8501)
 streamlit run src/ui/Patient_Chat.py --server.port 8501
@@ -46,15 +46,12 @@ streamlit run src/ui/Patient_Chat.py --server.port 8501
 
 | Command | What it does |
 |---------|--------------|
-| `uvicorn main:app --reload` | FastAPI backend only (:8000) |
+| `uvicorn src.main:app --reload` | FastAPI backend only (:8000) |
 | `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
-| `python -m src.cli index` | rebuild Chroma index from `data/raw` |
-| `python -m src.cli check` | resolved config + API health |
-| `python -m src.cli test` | run the pytest suite |
 
 There is no `python main.py` or `python app.py`; run uvicorn and Streamlit directly.
 
-**Upgrading an existing checkout:** run `python -m src.cli index` once. The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
+**Upgrading an existing checkout:** rebuild the index once (for example with the **Rebuild local medical source index** button in the Admin page). The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
 
 Chat answers can also be streamed through `POST /conversations/{id}/messages/stream` (server-sent events); guardrails and clinician review are unchanged.
 

@@ -63,7 +63,7 @@ src/             # importable as src.* (package root)
 tests/           # pytest suite
 data/            # runtime data (ignored by Git)
 docs/            # this documentation
-main.py          # FastAPI backend entrypoint (`uvicorn main:app`)
+src/main.py      # FastAPI backend entrypoint (`uvicorn src.main:app`)
 pyproject.toml   # packaging, pytest, ruff, coverage configuration
 .env             # runtime secrets (untracked)
 src/ui/
@@ -83,7 +83,7 @@ src/ui/
 2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage: general -> local evidence lookup, then an educational answer
 ```
 
-`main.py` calls it at import time so `uvicorn main:app --reload` logs immediately.
+`src/main.py` calls it at import time so `uvicorn src.main:app --reload` logs immediately.
 
 ### Log message convention
 
@@ -100,13 +100,6 @@ the flow to a developer reading the console after the fact:
 `sentence_transformers`, `posthog`) to `WARNING` so their per-request HTTP/telemetry chatter does not
 bury the application's own narrative. `uvicorn.access` is left at its default (INFO) so request logs
 remain visible; to quiet it, set its level to `WARNING` in `setup_logging()`.
-
-## Adding a new command
-
-1. Add a `cmd_<name>` function and a subparser in `src/cli.py`.
-2. Wire it into `build_parser()`.
-3. Add tests in `tests/test_cli.py` (no server start required).
-4. Update `docs/setup.md` and `docs/architecture.md`.
 
 ## Retrieval and streaming internals
 

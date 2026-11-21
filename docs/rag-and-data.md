@@ -4,7 +4,7 @@ Only add PDFs that you are licensed or otherwise authorized to process. Keep the
 
 ## Indexing
 
-Run `python -m src.cli index` (or the **Rebuild local medical source index** button in the Admin page) to:
+Use the **Rebuild local medical source index** button in the Admin page to:
 
 1. Load every PDF under `data/raw` with `PyMuPDFLoader`.
 2. Drop low-value pages: front matter (`DRUGGPT_SKIP_FRONT_MATTER_PAGES`), dedications, tables of contents, indexes, bibliographies, and numeric/index-style pages. Very short chunks (`DRUGGPT_MIN_CHUNK_CHARS`) are also discarded. This matters because the original corpus was dominated by a 5,000-page textbook whose index and dedication pages out-ranked real content.
@@ -16,7 +16,7 @@ Run `python -m src.cli index` (or the **Rebuild local medical source index** but
 
 The rebuild response reports `documents_indexed`, `chunks_indexed`, `chunks_dropped`, and a per-document breakdown. The index can be deleted and rebuilt at any time. It is not a source of truth: retain the original PDFs and verify citations against them.
 
-> **Rebuild required when upgrading from an older version.** Older indexes used Chroma's default L2 space and stored absolute paths. `MedicalRetriever.status()` reports `ready=false`, `needs_rebuild=true`, and a log message asking you to run `python -m src.cli index`. Until you rebuild, chat still works but falls back to `general_education` with no citations.
+> **Rebuild required when upgrading from an older version.** Older indexes used Chroma's default L2 space and stored absolute paths. `MedicalRetriever.status()` reports `ready=false`, `needs_rebuild=true`, and a log message asking you to rebuild the index. Until you rebuild, chat still works but falls back to `general_education` with no citations.
 
 ## Retrieval and citations
 

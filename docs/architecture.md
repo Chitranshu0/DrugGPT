@@ -100,13 +100,12 @@ The project uses a flat `src` layout (the package root is `src`, imported as `sr
 
 ```text
 DrugGPT/
-├── main.py                     # lazy app export for `uvicorn main:app`
 ├── .env                        # runtime secrets (untracked)
 ├── .env.example                # template for .env
 ├── pyproject.toml
 ├── src/
 │   ├── __init__.py
-│   ├── cli.py                  # CLI commands (testable, no server start)
+│   ├── main.py                 # lazy app export for `uvicorn src.main:app`
 │   ├── api/app.py              # FastAPI application
 │   ├── core/
 │   │   ├── config.py           # Settings (env/.env, validation, directories)
@@ -140,7 +139,6 @@ DrugGPT/
 | `src.rag.indexing` / `src.rag.retrieval` | PDF chunking and Chroma-backed evidence |
 | `src.ui` | Streamlit application and testable HTTP client |
 | `src.core.runtime` | TensorFlow-disable shims and warning filters applied before heavy imports |
-| `src.cli` | Maintenance commands (`index`, `check`, `test`) |
 
 ## Two kinds of human-in-the-loop behavior
 
@@ -173,21 +171,13 @@ mkdir -p data/raw
 # copy licensed medical PDFs into data/raw/
 
 # 3. Terminal 1: FastAPI backend (:8000) with auto-reload
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 # 4. Terminal 2: Streamlit frontend (:8501)
 streamlit run src/ui/Patient_Chat.py --server.port 8501
 ```
 
-Or use the maintenance CLI:
-
-```bash
-python -m src.cli index # rebuild Chroma index from data/raw
-python -m src.cli check # print resolved config + API health
-python -m src.cli test  # run the pytest suite
-```
-
-`uvicorn main:app` resolves the lazy ``app`` exported by ``main.py``; logging is configured at import time so request logs appear immediately in that terminal.
+`uvicorn src.main:app` resolves the lazy ``app`` exported by ``src/main.py``; logging is configured at import time so request logs appear immediately in that terminal.
 
 The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:8501`. Use the Streamlit sidebar **Rebuild local medical source index** after adding PDFs.
 

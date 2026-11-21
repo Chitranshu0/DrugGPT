@@ -21,7 +21,7 @@ Put PDFs you are licensed to index in `data/raw`, then start the two services in
 
 ```bash
 # Terminal 1: FastAPI backend (:8000) with auto-reload
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit frontend (:8501)
 streamlit run src/ui/Patient_Chat.py --server.port 8501
@@ -50,13 +50,8 @@ clinician reviews as they happen.
 
 | Command | What it does |
 |---------|--------------|
-| `uvicorn main:app --reload` | FastAPI backend only (:8000) |
+| `uvicorn src.main:app --reload` | FastAPI backend only (:8000) |
 | `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
-| `python -m src.cli index` | rebuild the Chroma index from `data/raw` |
-| `python -m src.cli check` | print resolved config + API health |
-| `python -m src.cli test` | run the pytest suite |
-
-`src/cli.py` is a maintenance helper only; it is not required to run the app.
 
 ## Configuration
 
@@ -118,14 +113,13 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 
 `OPENROUTER_API_KEY` is required for generated answers. `DRUGGPT_DATA_DIR` is resolved relative to the repository root. If the index is unavailable, confirm PDFs are in `data/raw` and rebuild it. If chat generation fails, verify `OPENROUTER_API_KEY` and network access to OpenRouter.
 
-**After upgrading an existing installation, always run `python -m src.cli index` once.** Older indexes use L2 distance and absolute source paths; the app marks them as needing a rebuild and answers without citations until they are recreated in cosine space. See [`rag-and-data.md`](rag-and-data.md) for score semantics.
+**After upgrading an existing installation, always rebuild the index once** (for example with the **Rebuild local medical source index** button in the Admin page). Older indexes use L2 distance and absolute source paths; the app marks them as needing a rebuild and answers without citations until they are recreated in cosine space. See [`rag-and-data.md`](rag-and-data.md) for score semantics.
 
 `Settings.validate()` refuses a non-loopback `DRUGGPT_API_HOST` unless `DRUGGPT_ALLOW_REMOTE=1`. `LocalStore` has no authentication, so keep the service bound to `127.0.0.1` unless you are deliberately demoing on a trusted local network.
 
 ## Verification
 
 ```bash
-python -m src.cli check      # resolved config + API health (needs the API running)
 pytest                    # test suite
 ruff check .              # linting
 ```
