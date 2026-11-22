@@ -57,7 +57,7 @@ clinician reviews as they happen.
 
 Configuration lives in `.env` (untracked) with `.env.example` as the template. Precedence for every value:
 
-**CLI flag > environment variable > `.env` > default**
+**environment variable > `.env` > default**
 
 ```ini
 OPENROUTER_API_KEY=your_openrouter_api_key

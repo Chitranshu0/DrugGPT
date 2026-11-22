@@ -9,8 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# src/druggpt is gone; this module lives at src/core/config.py, so parents[2]
-# is the repository root.
+# This module lives at src/core/config.py, so parents[2] is the repository root.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Load .env from the repository root regardless of the current working dir.
@@ -43,9 +42,9 @@ def setup_logging(level: str = "INFO") -> None:
 class Settings:
     """Runtime settings with local, non-source defaults.
 
-    Precedence for every value: CLI flag > environment variable > .env > default.
-    Values are re-read from ``os.environ`` on every instantiation so that tests
-    and the CLI can override them after the module has been imported.
+    Precedence for every value: environment variable > .env > default.
+    Values are re-read from ``os.environ`` on every instantiation so tests can
+    override them after the module has been imported.
     """
 
     data_dir: Path = field(default_factory=lambda: _project_path(os.getenv("DRUGGPT_DATA_DIR", "data")))
@@ -57,13 +56,11 @@ class Settings:
         default_factory=lambda: float(os.getenv("DRUGGPT_RELEVANCE_THRESHOLD", "0.35"))
     )
     retrieval_k: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_RETRIEVAL_K", "5")))
-    # Clarifications are deterministic by default: a fixed, reviewed message is
-    # both faster (~11 s saved per vague message) and safer than a free-form LLM reply.
+    # Clarifications default to a fixed, reviewed message instead of an LLM reply.
     llm_clarify: bool = field(
         default_factory=lambda: os.getenv("DRUGGPT_LLM_CLARIFY", "0").lower() in {"1", "true", "yes"}
     )
-    # Index quality controls. Junk pages (dedications, indexes, TOCs, numeric
-    # tables) polluted retrieval in the original corpus and are dropped at index time.
+    # Index quality controls: drop low-value pages (front matter, indexes, TOCs).
     min_chunk_chars: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_MIN_CHUNK_CHARS", "120")))
     skip_front_matter_pages: int = field(
         default_factory=lambda: int(os.getenv("DRUGGPT_SKIP_FRONT_MATTER_PAGES", "5"))
@@ -95,7 +92,7 @@ class Settings:
         """Build settings from the current environment/.env file.
 
         Re-instantiating re-reads env vars, which is useful for tests that set
-        ``os.environ`` before importing or for the CLI's --data-dir override.
+        ``os.environ`` before importing.
         """
         return cls()
 

@@ -90,7 +90,7 @@ src/ui/
 Write messages as **what happened + identifiers + outcome**, in plain language that explains
 the flow to a developer reading the console after the fact:
 
-- Good: `Conversation <id> created for patient <id> — mode=ai (awaiting messages)`
+- Good: `Conversation <id> created for patient <id> — awaiting messages`
 - Avoid: terse codes or raw state dumps like `chars=2`, `mode=clarification`, or `Triage result: general`.
 - Errors go in the headline with the exception type and message — the global handler in
   `src/api/app.py` logs `Request failed: <METHOD> <path> raised <Type>: <message>` and keeps the
@@ -111,6 +111,6 @@ remain visible; to quiet it, set its level to `WARNING` in `setup_logging()`.
 ## Conventions
 
 - Imports use the `src.*` scheme (e.g. `from src.core.config import Settings`).
-- `Settings` values are read at instantiation time via `default_factory`, so tests and the CLI can override `os.environ` after import.
+- `Settings` values are read at instantiation time via `default_factory`, so tests can override `os.environ` after import.
 - Never commit `.env` or anything under `data/`.
 - Keep `ruff check .` and `pytest` green on every change.

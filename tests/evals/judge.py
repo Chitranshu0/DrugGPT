@@ -1,7 +1,7 @@
 """OpenRouter chat clients shared by the eval judge, synthesizer, and harness.
 
 The primary key is always the app's existing ``OPENROUTER_API_KEY`` with the
-free ``DRUGGPT_EVAL_MODEL`` (default ``google/gemma-4-31b-it:free``). A second
+free ``DRUGGPT_EVAL_MODEL`` (default ``inclusionai/ling-3.2-flash:free``). A second
 key in ``OPENROUTER_FALLBACK_API_KEY`` is attached as a LangChain fallback and
 is only used when the primary call fails. Nothing overwrites the primary key.
 """
@@ -58,7 +58,6 @@ class EvalJudge(DeepEvalBaseLLM):
     def __init__(self, temperature: float = 0.0) -> None:
         self._temperature = temperature
         self._client = build_chat_model(4096, temperature)
-        self._fallback = build_fallback_client(4096, temperature)
         super().__init__()
 
     def load_model(self):
@@ -94,21 +93,18 @@ class EvalJudge(DeepEvalBaseLLM):
     def _rebuild(self, attempt: int) -> None:
         budget = 4096 * (attempt + 2)
         self._client = build_chat_model(budget, self._temperature)
-        self._fallback = build_fallback_client(budget, self._temperature)
         time.sleep(2 * (attempt + 1))
 
     def generate(self, prompt: str, **kwargs: object):
         schema = kwargs.get("schema")
         prompt = self._prepare(prompt, kwargs)
         for attempt in range(3):
-            for client in filter(None, (self._client, self._fallback)):
-                text = self._text(client.invoke(prompt))
-                if not text:
-                    continue  # empty content is not an exception
+            text = self._text(self._client.invoke(prompt))
+            if text:
                 try:
                     return self._parse(text, schema)
                 except (ValueError, TypeError, KeyError):
-                    continue  # malformed structured output, try the next client
+                    pass
             self._rebuild(attempt)
         raise RuntimeError("Judge model returned empty content three times in a row.")
 
@@ -116,14 +112,12 @@ class EvalJudge(DeepEvalBaseLLM):
         schema = kwargs.get("schema")
         prompt = self._prepare(prompt, kwargs)
         for attempt in range(3):
-            for client in filter(None, (self._client, self._fallback)):
-                text = self._text(await client.ainvoke(prompt))
-                if not text:
-                    continue
+            text = self._text(await self._client.ainvoke(prompt))
+            if text:
                 try:
                     return self._parse(text, schema)
                 except (ValueError, TypeError, KeyError):
-                    continue
+                    pass
             self._rebuild(attempt)
         raise RuntimeError("Judge model returned empty content three times in a row.")
 

@@ -25,8 +25,7 @@ configure_runtime()
 
 logger = logging.getLogger("druggpt.rag.indexing")
 
-# Front matter and reference pages carry almost no retrievable medical content,
-# yet the original corpus was dominated by them (dedications, indexes, TOCs).
+# Front matter and reference pages carry little retrievable medical content.
 _LOW_VALUE_PATTERN = re.compile(
     r"^\s*(dedicat|in memory of|table of contents|contents\b|index\b|bibliography|"
     r"acknowledg|list of (tables|figures)|abbreviations|foreword|preface)",

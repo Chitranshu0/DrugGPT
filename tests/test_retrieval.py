@@ -92,7 +92,7 @@ def test_status_rejects_legacy_schema(monkeypatch, app_settings):
     status = MedicalRetriever(app_settings).status()
     assert status.ready is False
     assert status.needs_rebuild is True
-    assert "python -m src.cli index" in status.message
+    assert "POST /vector-db/rebuild" in status.message
 
 
 def test_search_clamps_scores_and_caches_store(monkeypatch, app_settings):

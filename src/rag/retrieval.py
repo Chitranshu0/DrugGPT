@@ -19,8 +19,7 @@ configure_runtime()
 COLLECTION_NAME = "medical_rag"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# Cosine space + a schema marker let us detect (and reject) old L2 indexes that
-# produced negative "relevance" scores and silently disabled every citation.
+# Cosine space plus a schema marker lets us reject incompatible older indexes.
 COLLECTION_METADATA = {"hnsw:space": "cosine", "schema_version": 2}
 INDEX_SCHEMA_VERSION = 2
 
@@ -78,9 +77,8 @@ def cosine_relevance(distance: float) -> float:
 def normalize_source_path(source: str, app_settings: Settings) -> str:
     """Return a portable, repo-relative citation path.
 
-    Legacy indexes stored absolute Windows paths (``C:\\Users\\...``) in both
-    metadata and citations. New indexes store relative POSIX paths; this helper
-    also cleans up anything older so citations never leak local directories.
+    Absolute paths are made relative to the repository or data directory so
+    citations never leak local filesystem details.
     """
     raw = Path(source)
     if not raw.is_absolute():
@@ -113,7 +111,7 @@ class MedicalRetriever:
             if needs_rebuild:
                 message = (
                     f"Index schema is outdated (space={metric}, version={stored_version}); "
-                    "run `python -m src.cli index` to rebuild with cosine similarity."
+                    "rebuild it from the Admin page or POST /vector-db/rebuild to use cosine similarity."
                 )
                 logger.warning(message)
             return DatabaseStatus(
@@ -127,15 +125,15 @@ class MedicalRetriever:
             )
         except chromadb.errors.NotFoundError:
             logger.info(
-                "Vector index not built yet at %s - status=not ready (run `python -m src.cli index`)",
+                "Vector index not built yet at %s - status=not ready (POST /vector-db/rebuild to create it)",
                 self.settings.chroma_dir,
             )
             return DatabaseStatus(ready=False, chunks_indexed=0, documents_indexed=0)
         except Exception as error:  # corrupt store, bad permissions, locked file, …
             logger.warning(
                 "Vector index at %s is unreadable (%s: %s). "
-                "Chat will fall back to general education until it is rebuilt with "
-                "`python -m src.cli index`.",
+                "Chat will fall back to general education until it is rebuilt via "
+                "POST /vector-db/rebuild.",
                 self.settings.chroma_dir,
                 type(error).__name__,
                 error,
@@ -149,9 +147,8 @@ class MedicalRetriever:
             raise VectorDatabaseNotReadyError(detail)
         try:
             store = _get_store(str(self.settings.chroma_dir))
-            # Raw distances avoid langchain's version-dependent relevance
-            # function, which warned with full Document dumps for out-of-range
-            # scores in the original implementation.
+            # Use raw distances; LangChain's relevance helper is version-dependent
+            # and logs full documents for out-of-range scores.
             results = store.similarity_search_with_score(query, k=self.settings.retrieval_k)
         except Exception as error:  # a corrupt/locked index must not crash the chat
             logger.warning(
@@ -165,7 +162,7 @@ class MedicalRetriever:
         for document, distance in results:
             metadata = document.metadata
             source_path = str(metadata.get("source", "Unknown source"))
-            # Preserve useful citations when an existing local index was migrated from the legacy layout.
+            # Prefer the current file on disk when an index still stores an older path.
             migrated_path = self.settings.raw_documents_dir / Path(source_path).name
             if migrated_path.exists():
                 source_path = str(migrated_path)

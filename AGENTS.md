@@ -9,7 +9,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - Install: `python -m venv .venv`, `.\.venv\Scripts\Activate.ps1`, `pip install -e ".[dev]"`
 - Backend :8000: `uvicorn src.main:app --reload`
 - Frontend :8501: `streamlit run src/ui/Patient_Chat.py --server.port 8501`
-- Tests: `pytest` (offline, ~65 tests); single test:
+- Tests: `pytest` (offline); single test:
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
 - DeepEval build loop: `deepeval test run tests/evals/test_druggpt.py` (real index + OpenRouter;
   see "DeepEval build loop" in `docs/development.md`). Goldens: `tests/evals/goldens.json`.
@@ -35,8 +35,7 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 ## Non-obvious behavior
 - No index, or no chunk >= `DRUGGPT_RELEVANCE_THRESHOLD`, still returns HTTP 200 with
   `answer_mode="general_education"`. It does not refuse or 503. Only LLM/config failures
-  return 503. README/ADR wording already reflects this (the old "answers only when evidence
-  is found" wording was stale).
+  return 503.
 - Chroma uses **cosine space** with normalized embeddings and `schema_version=2`. Scores are
   `clamp(1 - cosine_distance, 0, 1)`. Older L2 indexes report `needs_rebuild=true` and must be
   recreated; until then answers have no citations.
@@ -54,16 +53,15 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - The embedding model downloads on first index/retrieval; `index` deletes and recreates
   the collection.
 
-## New: human-in-the-loop clinician chat (POC)
-- `Conversation.mode` is `"ai"` (default) or `"human"` (SQLite migration is idempotent).
-- `POST /conversations/{id}/messages`: if mode is `"human"`, the patient message is
-  queued and the API returns `answer_mode="human_hold"` (no LLM call).
-- `POST /conversations/{id}/clinician-reply`: clinician writes a free-text message;
-  any pending review is closed as approved, the clinician message is stored with
-  `role="clinician"`, and mode returns to `"ai"`.
-- `GET /conversations/{id}/transcript`: messages + open review + issue context.
-- Same Streamlit app; patient and doctor open different sidebar pages/tabs against one
-  backend + one SQLite DB.
+## Clinician review
+- Personal clinical decisions pause with LangGraph `interrupt()`; the review row is
+  saved before the interrupt and resumed via `POST /reviews/{id}/decision` using the
+  stored `graph_thread_id`.
+- `POST /conversations/{id}/clinician-reply` records a free-text clinician message and
+  closes the open review as approved.
+- `GET /conversations/{id}/transcript` returns messages + open review + issue context.
+- Same Streamlit app; the clinician page reviews pending requests against one backend
+  and one SQLite DB.
 
 ## Data and safety
 - Never commit `.env` or anything under `data/` (`raw/`, `chroma/`, `checkpoints/`, `druggpt.db`).

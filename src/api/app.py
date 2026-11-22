@@ -13,7 +13,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.core.models import (
-    ChatRequest,
     ChatResponse,
     ClinicianReplyRequest,
     Conversation,
@@ -34,6 +33,8 @@ from src.rag.indexing import rebuild_index
 from src.rag.service import MedicalRAGService
 
 logger = logging.getLogger("druggpt.api")
+
+API_VERSION = "3.0.0"
 
 TAGS_METADATA = [
     {
@@ -78,7 +79,7 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     """
     app = FastAPI(
         title="DrugGPT API",
-        version="3.0.0",
+        version=API_VERSION,
         description=(
             "Local, development-only medical education and clinician-review API.\n\n"
             "**Typical flow**\n"
@@ -111,8 +112,7 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Turn any unexpected error into a clean JSON 500 instead of a raw traceback."""
-        # Put the root cause in the headline so a developer does not have to hunt
-        # for it at the bottom of the traceback (logger.exception keeps that too).
+        # Log the root cause in the summary line; logger.exception keeps the traceback.
         logger.exception(
             "Request failed: %s %s raised %s: %s",
             request.method,
@@ -130,7 +130,7 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         """Human-friendly entry point that points at the useful URLs."""
         return {
             "service": "DrugGPT API",
-            "version": "3.0.0",
+            "version": API_VERSION,
             "status": "running",
             "docs": "/docs",
             "redoc": "/redoc",
@@ -269,7 +269,7 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
             lambda: rag_service.store.create_conversation(request.patient_id, request.title)
         )
         logger.info(
-            "Conversation %s created for patient %s - mode=ai (awaiting messages)",
+            "Conversation %s created for patient %s - awaiting messages",
             conversation.id,
             request.patient_id,
         )
@@ -292,13 +292,14 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     def list_messages_since(conversation_id: str, after: str | None = None) -> dict[str, object]:
         """Cheap polling payload for the Streamlit transcript fragment."""
         messages = get_or_404(lambda: rag_service.store.list_messages(conversation_id))
+        version = len(messages)
         if after:
             positions = [index for index, message in enumerate(messages) if message.id == after]
             if positions:
                 messages = messages[positions[-1] + 1 :]
         return {
             "messages": [message.model_dump(mode="json") for message in messages],
-            "version": len(rag_service.store.list_messages(conversation_id)),
+            "version": version,
         }
 
     @app.post(
@@ -450,12 +451,12 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         "/conversations/{conversation_id}/clinician-reply",
         response_model=ChatResponse,
         tags=["Clinician"],
-        summary="Record a clinician's free-text reply and return the conversation to AI mode",
+        summary="Record a clinician's free-text reply",
     )
     def clinician_reply(conversation_id: str, request: ClinicianReplyRequest) -> ChatResponse:
         """A clinician writes directly into the conversation. Closes any pending review first."""
         logger.info(
-            "Clinician %s replying in conversation %s (%d chars) - will close any open review and return to AI mode",
+            "Clinician %s replying in conversation %s (%d chars) - closing any open review",
             request.reviewer_name,
             conversation_id,
             len(request.message),
@@ -480,27 +481,6 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
             logger.exception("Unexpected error recording clinician reply for %s", conversation_id)
             raise HTTPException(
                 status_code=500, detail="Internal server error while recording the clinician reply."
-            ) from error
-
-    @app.post(
-        "/chat",
-        response_model=ChatResponse,
-        tags=["Chat"],
-        summary="Legacy one-shot chat",
-        description="Compatibility endpoint. New clients should use conversation-based chat.",
-    )
-    def legacy_chat(request: ChatRequest) -> ChatResponse:
-        logger.info("Legacy one-shot chat request for thread %s (%d chars)", request.thread_id, len(request.message))
-        try:
-            return rag_service.answer(request.message, request.thread_id)
-        except RuntimeError as error:
-            logger.error("Legacy chat generation failed for thread %s: %s", request.thread_id, error)
-            raise HTTPException(status_code=503, detail=str(error)) from error
-        except Exception as error:
-            logger.exception("Unexpected error in legacy chat endpoint")
-            raise HTTPException(
-                status_code=500,
-                detail="Internal server error while generating a response. Check the server logs.",
             ) from error
 
     return app

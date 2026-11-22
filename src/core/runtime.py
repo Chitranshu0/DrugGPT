@@ -2,8 +2,8 @@
 
 Import :func:`configure_runtime` first in every entrypoint (the uvicorn target
 and each Streamlit page) so that TensorFlow is never pulled in through
-``transformers``/``datasets``. Loading TF adds ~25 s to startup and produces
-oneDNN/tf_keras warnings on a stack that only needs the PyTorch embedding path.
+``transformers``/``datasets``. TensorFlow is unused and adds startup time plus
+oneDNN/tf_keras warnings on the PyTorch embedding path.
 """
 
 from __future__ import annotations

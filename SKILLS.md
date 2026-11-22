@@ -59,16 +59,15 @@ ruff check .
 - `Settings` is a frozen dataclass re-reading env on each instantiation.
 - Tests use `dataclasses.replace(Settings(), ...)` and inject fakes.
 
-## New: human-in-the-loop clinician chat (POC)
-- `Conversation.mode` is `"ai"` (default) or `"human"` (SQLite migration is idempotent).
-- `POST /conversations/{id}/messages`: if mode is `"human"`, the patient message is
-  queued and the API returns `answer_mode="human_hold"` (no LLM call).
-- `POST /conversations/{id}/clinician-reply`: clinician writes a free-text message;
-  any pending review is closed as approved, the clinician message is stored with
-  `role="clinician"`, and mode returns to `"ai"`.
+## Clinician review
+- Personal clinical decisions pause with LangGraph `interrupt()`; the review row stores
+  the `graph_thread_id` used to resume the graph.
+- `POST /reviews/{id}/decision` approves or rejects the draft and resumes the graph.
+- `POST /conversations/{id}/clinician-reply` records a free-text clinician message and
+  closes the open review as approved.
 - `GET /conversations/{id}/transcript`: messages + open review + issue context.
-- Same Streamlit app; patient and doctor open different sidebar pages/tabs against one
-  backend + one SQLite DB.
+- Same Streamlit app; the clinician page reviews pending requests against one backend
+  and one SQLite DB.
 
 ## Data and safety
 - Never commit `.env` or anything under `data/` (`raw/`, `chroma/`,

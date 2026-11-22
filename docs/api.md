@@ -133,7 +133,6 @@ Possible outcomes:
 | Emergency | `emergency_guidance` | `emergency` |
 | Out of scope | `out_of_scope` | `scope_notice` |
 | Personal decision held for clinician | `review_pending` | `clinician_review` |
-| Conversation in human mode | `review_pending` | `human_hold` |
 
 ### `POST /conversations/{conversation_id}/messages/stream`
 
@@ -170,35 +169,17 @@ Approve or reject a review. On approval, `approved_guidance` becomes the user's 
 Return all messages plus any open review and its issue context (for the clinician UI).
 
 ### `POST /conversations/{id}/clinician-reply`
-Write a free-text clinician reply. Closes any pending review as approved and returns the conversation to AI mode.
+Write a free-text clinician reply. Closes any pending review as approved.
 
 ```json
 {"message": "Discuss this with your doctor before starting it.", "reviewer_name": "Dr. Smith"}
 ```
-
-## Legacy `POST /chat`
-
-Request: `{"message": "Explain aspirin pharmacology", "thread_id": "research-session-1"}`
-
-Response:
-
-```json
-{
-  "answer": "...",
-  "status": "answered",
-  "thread_id": "research-session-1",
-  "tool_activity": {"tool_name": "search_medical_sources", "message": "...", "sources_found": 2},
-  "sources": [{"id": 1, "title": "Pharmacology", "path": "data/raw/book.pdf", "page": 42, "excerpt": "...", "relevance_score": 0.91}]
-}
-```
-
-`status` values are `answered`, `out_of_scope`, `safety_refusal`, `emergency_guidance`, `review_pending`, and `needs_more_information`. A missing source index or model configuration is handled in-band (general education); model/config failures return `503`.
 
 ## ChatResponse schema
 
 - `answer`: assistant text
 - `sources`: list of `{id, title, path, page, excerpt, relevance_score}`. `path` is repo-relative; `relevance_score` is `clamp(1 - cosine_distance, 0, 1)`.
 - `tool_activity`: `{tool_name, message, sources_found}`
-- `status`: one of the `status` values above
+- `status`: `answered`, `out_of_scope`, `safety_refusal`, `emergency_guidance`, `review_pending`, or `needs_more_information`
 - `thread_id`, `review_id`, `review_status`
-- `answer_mode`: `source_grounded`, `general_education`, `clarification`, `emergency`, `scope_notice`, `clinician_approved`, `clinician_review`, `clinician_reply`, `human_hold`
+- `answer_mode`: `source_grounded`, `general_education`, `clarification`, `emergency`, `scope_notice`, `clinician_approved`, `clinician_review`, or `clinician_reply`

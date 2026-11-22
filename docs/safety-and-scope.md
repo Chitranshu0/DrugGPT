@@ -26,7 +26,7 @@ A request is held for clinician review when it asks for a **personal clinical de
 - **Treatment** — which treatment or therapy a person should start.
 - **Test report** — what a personal lab result, scan, or report means.
 
-The assistant drafts internal guidance, saves it as a review, and pauses with a LangGraph `interrupt`. Nothing is shown to the user until a clinician approves it via `POST /reviews/{review_id}/decision` or writes a free-text reply via `POST /conversations/{id}/clinician-reply`. Rejected reviews become a safety refusal. A conversation can also be switched to human mode so all further messages wait for the clinician directly.
+The assistant drafts internal guidance, saves it as a review, and pauses with a LangGraph `interrupt`. Nothing is shown to the user until a clinician approves it via `POST /reviews/{review_id}/decision` or writes a free-text reply via `POST /conversations/{id}/clinician-reply`. Rejected reviews become a safety refusal.
 
 ## Emergency handling
 

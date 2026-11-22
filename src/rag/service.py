@@ -152,8 +152,7 @@ class MedicalRAGService:
             model=self.settings.llm_model,
             api_key=self.settings.openrouter_api_key,
             temperature=0.2,
-            # Reasoning models spend part of this budget on hidden reasoning;
-            # a low cap can leave the visible answer empty or truncated.
+            # Reasoning models spend part of this budget on hidden reasoning.
             max_tokens=1500,
         )
 
@@ -163,8 +162,7 @@ class MedicalRAGService:
         text = str(response.content)
         if text.strip():
             return text
-        # Some reasoning models return empty content when reasoning consumes the
-        # whole token budget. Retry once with a larger budget before giving up.
+        # Retry once with a larger budget when reasoning exhausted the token limit.
         logger.warning(
             "LLM %s returned empty content (reasoning likely consumed the token budget); "
             "retrying once with a larger budget",
@@ -296,8 +294,7 @@ class MedicalRAGService:
         return {"answer": OUT_OF_SCOPE_MESSAGE, "status": ChatStatus.OUT_OF_SCOPE.value, "answer_mode": "scope_notice"}
 
     def _clarify_node(self, state: AgentState) -> AgentState:
-        # Deterministic by default: the vague-message path already has a fixed,
-        # reviewed response. Skip the LLM (~11 s) unless explicitly opted in.
+        # Use the fixed response unless the LLM clarification path is enabled.
         if self.settings.llm_clarify:
             question = self._generate(
                 CLARIFY_PROMPT,
@@ -403,30 +400,6 @@ class MedicalRAGService:
             len(message),
         )
         conversation = self.store.get_conversation(conversation_id)
-        if conversation.mode == "human":
-            logger.info(
-                "Conversation %s is in HUMAN mode - holding the message for a clinician (no LLM call)",
-                conversation_id,
-            )
-            self.store.add_message(conversation_id, "user", message, status="queued_for_clinician")
-            thread_id = f"conversation:{conversation_id}:message:{uuid4()}"
-            response = ChatResponse(
-                answer="A clinician has taken over this conversation. They will reply here directly — check back shortly.",
-                status=ChatStatus.REVIEW_PENDING,
-                thread_id=thread_id,
-                review_id=None,
-                review_status="human_hold",
-                answer_mode="human_hold",
-            )
-            self.store.add_message(
-                conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
-            )
-            logger.info(
-                "Message queued in conversation %s (answer_mode=%s) - patient asked to check back for the clinician reply",
-                conversation_id,
-                response.answer_mode,
-            )
-            return response
         user_message = self.store.add_message(conversation_id, "user", message)
         thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
         graph_config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
@@ -478,7 +451,7 @@ class MedicalRAGService:
         """
         triage = triage_query(message).value
         conversation = self.store.get_conversation(conversation_id)
-        if conversation.mode == "human" or triage not in {
+        if triage not in {
             Triage.GENERAL.value,
             Triage.SYMPTOM.value,
         }:
@@ -507,8 +480,7 @@ class MedicalRAGService:
                 yield {"type": "token", "token": token}
         answer = "".join(pieces)
         if not answer.strip():
-            # Some reasoning models return no streamed content; fall back to the
-            # battle-tested non-stream call (including its empty-content retry).
+            # Fall back to the non-stream call, which includes the empty-content retry.
             logger.warning("Streaming returned no visible content; retrying with the non-stream LLM path")
             answer = self._generate(prompt, **values)
 
@@ -561,9 +533,9 @@ class MedicalRAGService:
         reviewer_name: str,
         review_id: str | None = None,
     ) -> ChatResponse:
-        """Record a clinician's free-text reply, close any pending review, and return the conversation to AI mode."""
+        """Record a clinician's free-text reply and close any pending review."""
         logger.info(
-            "Recording clinician reply in conversation %s (clinician=%s) - will close any pending review and restore AI mode",
+            "Recording clinician reply in conversation %s (clinician=%s) - closing any pending review",
             conversation_id,
             reviewer_name,
         )
@@ -572,15 +544,13 @@ class MedicalRAGService:
         effective_review_id = review_id or (pending.id if pending else None)
         if effective_review_id is None:
             raise ValueError("No open clinician review for this conversation.")
-        if pending is not None:
-            self.store.decide_review(
-                effective_review_id,
-                "approved",
-                reviewer_name,
-                note="clinician free-text reply",
-                guidance=message,
-            )
-            self.store.set_conversation_mode(conversation_id, "ai")
+        self.store.decide_review(
+            effective_review_id,
+            "approved",
+            reviewer_name,
+            note="clinician free-text reply",
+            guidance=message,
+        )
         response = ChatResponse(
             answer=message,
             status=ChatStatus.ANSWERED,
@@ -597,14 +567,8 @@ class MedicalRAGService:
             {"reviewer_name": reviewer_name, "review_id": effective_review_id},
         )
         logger.info(
-            "Clinician reply stored in conversation %s (review=%s) - conversation mode restored to ai",
+            "Clinician reply stored in conversation %s (review=%s)",
             conversation_id,
             effective_review_id,
         )
         return response
-
-    def answer(self, question: str, thread_id: str) -> ChatResponse:
-        """Compatibility wrapper for the legacy /chat endpoint."""
-        patient = self.store.ensure_demo_patient()
-        conversation = self.store.ensure_demo_conversation(patient.id)
-        return self.send_message(conversation.id, question)

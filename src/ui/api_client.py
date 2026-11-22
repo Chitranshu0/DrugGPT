@@ -119,7 +119,7 @@ class DrugGPTApiClient:
         reviewer_name: str,
         review_id: str | None = None,
     ) -> dict:
-        """Record a clinician's free-text reply and resume the conversation."""
+        """Record a clinician's free-text reply and close the open review."""
         return self._request(
             "POST",
             f"/conversations/{conversation_id}/clinician-reply",

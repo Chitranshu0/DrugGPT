@@ -118,9 +118,7 @@ def render_answer_details(result: dict, streamed_text: str) -> None:
     if not streamed_text.strip():
         st.markdown(result["answer"])
     answer_mode = result.get("answer_mode", "")
-    if answer_mode == "human_hold":
-        st.info("A clinician has taken over this conversation. They will reply here directly — check back shortly.")
-    elif result.get("status") == "review_pending":
+    if result.get("status") == "review_pending":
         st.info("A clinician review is pending. Check back here after it has been reviewed.")
     elif answer_mode == "clarification":
         st.caption("I need a little more detail to help — please answer the question above.")

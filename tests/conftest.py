@@ -63,7 +63,6 @@ class FakeStore:
         self.patient_id = patient_id
         self.messages: dict[str, list[ConversationMessage]] = {}
         self.reviews: dict[str, object] = {}
-        self.modes: dict[str, str] = {}
 
     def get_patient(self, patient_id: str) -> Patient:
         return Patient(
@@ -88,14 +87,10 @@ class FakeStore:
             title="New medical chat",
             created_at=_now(),
             updated_at=_now(),
-            mode=self.modes.get(conversation_id, "ai"),
         )
 
     def ensure_demo_patient(self) -> Patient:
         return self.get_patient(self.patient_id)
-
-    def ensure_demo_conversation(self, patient_id: str) -> Conversation:
-        return self.get_conversation("conv-1")
 
     def list_messages(self, conversation_id: str, limit: int | None = None):
         return self.messages.get(conversation_id, [])
@@ -112,12 +107,6 @@ class FakeStore:
         )
         self.messages.setdefault(conversation_id, []).append(msg)
         return msg
-
-    def conversation_mode(self, conversation_id: str) -> str:
-        return self.modes.get(conversation_id, "ai")
-
-    def set_conversation_mode(self, conversation_id: str, mode: str) -> None:
-        self.modes[conversation_id] = mode
 
     def find_pending_review(self, thread_id: str):
         return None

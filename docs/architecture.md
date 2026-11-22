@@ -68,15 +68,14 @@ flowchart TD
 1. **Patient sends a message** — Streamlit posts to `POST /conversations/{id}/messages`.
 2. **FastAPI validates and loads** — the route checks the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
 3. **LangGraph runs `triage`** — deterministic regex rules classify the message as emergency, out-of-scope, needs-more-information, general, symptom, or one of four personal-decision types.
-4. **Human mode short-circuits the graph** — if `Conversation.mode == "human"`, the message is queued with `answer_mode="human_hold"` and no graph/LLM call happens.
-5. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
-6. **The graph picks one response path**:
+4. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
+5. **The graph picks one response path**:
    - **Emergency / out-of-scope** → immediate fixed guidance.
    - **Unclear** → the `clarify` node returns a fixed, reviewed follow-up question with no LLM call (opt in with `DRUGGPT_LLM_CLARIFY=1` for a prompt-generated one); no retrieval, no medical advice.
    - **General / symptom** → the `answer` node searches Chroma in cosine space. Chunks whose clamped cosine similarity is at or above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history. `POST /conversations/{id}/messages/stream` streams this answer as SSE tokens before returning the same stored `ChatResponse`.
    - **Personal health decision** → the `clinician_review` node drafts internal guidance, saves a review row, and pauses with `interrupt()`.
-7. **A clinician resolves the hold** — through `POST /reviews/{id}/decision` (approve/reject) or `POST /conversations/{id}/clinician-reply` (free text). The graph thread is resumed with `Command(resume=...)`, keyed by the stored `graph_thread_id`.
-8. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. Streamlit renders the right caption for each mode.
+6. **A clinician resolves the hold** — `POST /reviews/{id}/decision` approves or rejects the draft and resumes the graph with `Command(resume=...)` keyed by the stored `graph_thread_id`. `POST /conversations/{id}/clinician-reply` instead records a free-text clinician reply and closes the review as approved.
+7. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. Streamlit renders the right caption for each mode.
 
 ## Triage categories
 
@@ -140,14 +139,14 @@ DrugGPT/
 | `src.ui` | Streamlit application and testable HTTP client |
 | `src.core.runtime` | TensorFlow-disable shims and warning filters applied before heavy imports |
 
-## Two kinds of human-in-the-loop behavior
+## Clinician review gate
 
 | Mechanism | Trigger | Endpoint | Purpose |
 |-----------|---------|----------|---------|
 | **Clinician review gate** | Triage is medication, test, treatment, or report interpretation | `POST /reviews/{id}/decision` | Approve or reject AI-drafted guidance before the patient sees it |
-| **Human clinician chat mode** | `Conversation.mode == "human"` | `POST /conversations/{id}/clinician-reply` | Queue patient messages so a clinician writes a free-text reply; any pending review is closed as approved and mode returns to `"ai"` |
+| **Free-text clinician reply** | An open review exists for the conversation | `POST /conversations/{id}/clinician-reply` | Record a clinician message and close the review as approved |
 
-Both paths store the result in SQLite and resume the same `graph_thread_id` saved before the interrupt. Emergency messages are never routed through either path.
+The decision endpoint resumes the paused graph through the stored `graph_thread_id`; the free-text reply stores the clinician message directly. Emergency messages are never routed through the review gate.
 
 ## Persistence
 

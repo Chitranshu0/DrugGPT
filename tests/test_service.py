@@ -61,17 +61,6 @@ class _StoreWithPendingReview(FakeStore):
         }
 
 
-def test_send_message_human_handoff_queues_for_clinician(app_settings, fake_store):
-    fake_store.set_conversation_mode("conv-1", "human")
-    service = MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=fake_store)
-    response = service.send_message("conv-1", "Should I take this drug?")
-    assert response.status == ChatStatus.REVIEW_PENDING
-    assert response.answer_mode == "human_hold"
-    assert response.review_id is None
-    roles = [m.role for m in fake_store.messages["conv-1"]]
-    assert roles == ["user", "assistant"]
-
-
 class _CountingRetriever(FakeRetriever):
     def __init__(self, evidence=None) -> None:
         super().__init__(evidence)
@@ -179,9 +168,8 @@ def test_personal_health_decisions_pause_for_clinician_without_rag(app_settings,
     assert retriever.calls == 0
 
 
-def test_reply_as_clinician_closes_review_and_returns_ai_mode(app_settings):
+def test_reply_as_clinician_closes_review(app_settings):
     store = _StoreWithPendingReview()
-    store.set_conversation_mode("conv-1", "human")
     service = MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=store)
     response = service.reply_as_clinician(
         conversation_id="conv-1", message="Take it with food.", reviewer_name="Dr. Smith"
@@ -193,7 +181,6 @@ def test_reply_as_clinician_closes_review_and_returns_ai_mode(app_settings):
     assert store.decided["decision"] == "approved"
     assert store.decided["guidance"] == "Take it with food."
     assert store.decided["reviewer_name"] == "Dr. Smith"
-    assert store.conversation_mode("conv-1") == "ai"
     clinician_msgs = [m for m in store.messages["conv-1"] if m.role == "clinician"]
     assert len(clinician_msgs) == 1
     assert clinician_msgs[0].content == "Take it with food."

@@ -39,11 +39,6 @@ class ToolActivity(BaseModel):
     sources_found: int = 0
 
 
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=2, max_length=4000)
-    thread_id: str = Field(min_length=1, max_length=128)
-
-
 class PatientCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     date_of_birth: str | None = None
@@ -96,7 +91,6 @@ class Conversation(BaseModel):
     title: str
     created_at: str
     updated_at: str
-    mode: str = "ai"
 
 
 class ConversationMessage(BaseModel):
