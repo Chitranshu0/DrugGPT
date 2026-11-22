@@ -47,17 +47,39 @@ def test_defaults_when_env_missing(monkeypatch):
         "DRUGGPT_API_HOST",
         "DRUGGPT_API_PORT",
         "DRUGGPT_UI_PORT",
+        "DRUGGPT_CORS_ORIGINS",
+        "DRUGGPT_CORS_ORIGIN_REGEX",
         "OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(var, raising=False)
     settings = Settings.from_env()
     assert settings.openrouter_api_key is None
+    assert settings.cors_origins == (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    )
+    assert "vercel" in settings.cors_origin_regex
     assert settings.llm_model == "nvidia/nemotron-3.5-lightning:free"
     assert settings.relevance_threshold == 0.35
     assert settings.retrieval_k == 5
     assert settings.api_host == "127.0.0.1"
     assert settings.api_port == 8000
     assert settings.ui_port == 8501
+
+
+def test_cors_origins_parse_comma_separated_env(monkeypatch):
+    monkeypatch.setenv(
+        "DRUGGPT_CORS_ORIGINS",
+        "https://app.example.com, http://localhost:3000 ,",
+    )
+    assert Settings.from_env().cors_origins == ("https://app.example.com", "http://localhost:3000")
+
+
+def test_cors_origin_regex_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("DRUGGPT_CORS_ORIGIN_REGEX", r"^https://app\.example\.com$")
+    assert Settings.from_env().cors_origin_regex == r"^https://app\.example\.com$"
 
 
 def test_validation_rejects_bad_threshold(monkeypatch):

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
@@ -14,6 +15,67 @@ def test_health_returns_status_and_mode(app_settings):
     body = client.get("/health").json()
     assert body["status"] == "running"
     assert body["mode"] == "local-development-only"
+
+
+def test_cors_preflight_allows_configured_frontend_origin(app_settings):
+    configured = replace(app_settings, cors_origins=("http://localhost:3000",))
+    app = create_app(MedicalRAGService(FakeRetriever(), configured, llm_factory=FakeLLM))
+    response = TestClient(app).options(
+        "/patients",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "GET" in response.headers["access-control-allow-methods"]
+
+
+def test_cors_preflight_does_not_allow_unknown_origin(app_settings):
+    configured = replace(app_settings, cors_origins=("http://localhost:3000",))
+    app = create_app(MedicalRAGService(FakeRetriever(), configured, llm_factory=FakeLLM))
+    response = TestClient(app).options(
+        "/patients",
+        headers={"Origin": "http://untrusted.example", "Access-Control-Request-Method": "GET"},
+    )
+    assert response.status_code == 400, response.text
+    assert "disallowed cors origin" in response.text.lower()
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_preflight_allows_local_ports_ipv6_and_vercel(app_settings):
+    configured = replace(app_settings, cors_origins=("http://localhost:3000",))
+    app = create_app(MedicalRAGService(FakeRetriever(), configured, llm_factory=FakeLLM))
+    client = TestClient(app)
+    for origin in (
+        "http://localhost:3001",
+        "http://127.0.0.1:3005",
+        "http://[::1]:3000",
+        "https://my-app.vercel.app",
+    ):
+        response = client.options(
+            "/patients",
+            headers={"Origin": origin, "Access-Control-Request-Method": "POST"},
+        )
+        assert response.status_code == 200, (origin, response.text)
+        assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_cors_preflight_allows_private_network_requests(app_settings):
+    configured = replace(app_settings, cors_origins=("http://localhost:3000",))
+    app = create_app(MedicalRAGService(FakeRetriever(), configured, llm_factory=FakeLLM))
+    response = TestClient(app).options(
+        "/patients",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["access-control-allow-private-network"] == "true"
 
 
 def test_models_shim_returns_configured_model(app_settings):

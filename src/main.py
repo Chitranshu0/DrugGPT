@@ -17,7 +17,8 @@ setup_logging()
 
 import logging  # noqa: E402
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from src.api.errors import register_exception_handlers  # noqa: E402
 from src.api.metadata import API_VERSION, DESCRIPTION, TAGS_METADATA  # noqa: E402
@@ -52,6 +53,33 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         terms_of_service="https://github.com/",
         openapi_tags=TAGS_METADATA,
     )
+    # The Next.js frontend is a different origin, so browsers send an OPTIONS
+    # preflight before JSON requests. Without CORS middleware FastAPI answers 405.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(rag_service.settings.cors_origins),
+        allow_origin_regex=rag_service.settings.cors_origin_regex,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        allow_credentials=False,
+        allow_private_network=True,
+    )
+
+    # CORSMiddleware answers rejected preflights itself (400), so log the details
+    # here from the outer middleware layer to make the cause visible in the terminal.
+    @app.middleware("http")
+    async def log_rejected_preflights(request: Request, call_next):
+        response = await call_next(request)
+        if request.method == "OPTIONS" and response.status_code == 400:
+            logger.warning(
+                "Rejected CORS preflight: origin=%s method=%s headers=%s private_network=%s",
+                request.headers.get("origin"),
+                request.headers.get("access-control-request-method"),
+                request.headers.get("access-control-request-headers"),
+                request.headers.get("access-control-request-private-network"),
+            )
+        return response
+
     logger.info("DrugGPT API application constructed (model=%s)", rag_service.settings.llm_model)
     register_exception_handlers(app)
     for make_router in ROUTER_FACTORIES:

@@ -75,6 +75,25 @@ class Settings:
     api_host: str = field(default_factory=lambda: os.getenv("DRUGGPT_API_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_API_PORT", "8000")))
     ui_port: int = field(default_factory=lambda: int(os.getenv("DRUGGPT_UI_PORT", "8501")))
+    # Browser origins allowed to call the API (the Next.js frontend, local or deployed).
+    cors_origins: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            origin.strip()
+            for origin in os.getenv(
+                "DRUGGPT_CORS_ORIGINS",
+                "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+            ).split(",")
+            if origin.strip()
+        )
+    )
+    # Catches local dev on any port (incl. IPv6 localhost) and Vercel deployments
+    # even when the explicit list above is overridden in .env.
+    cors_origin_regex: str = field(
+        default_factory=lambda: os.getenv(
+            "DRUGGPT_CORS_ORIGIN_REGEX",
+            r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$|^https://.*\.vercel\.app$",
+        )
+    )
     # Eval-only model/key chain. The primary OpenRouter key is never overwritten;
     # the fallback key is used only when a primary call fails.
     eval_model: str = field(

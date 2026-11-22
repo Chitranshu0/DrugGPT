@@ -70,6 +70,10 @@ DRUGGPT_API_URL=http://127.0.0.1:8000
 DRUGGPT_API_HOST=127.0.0.1
 DRUGGPT_API_PORT=8000
 DRUGGPT_UI_PORT=8501
+# Comma-separated browser origins allowed by CORS (add your Vercel URL when deployed)
+DRUGGPT_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
+# Regex fallback: any local port (incl. IPv6 localhost) and any *.vercel.app origin
+DRUGGPT_CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$|^https://.*\.vercel\.app$
 DRUGGPT_MODEL=nvidia/nemotron-3.5-lightning:free
 DRUGGPT_RELEVANCE_THRESHOLD=0.35
 DRUGGPT_RETRIEVAL_K=5
@@ -104,6 +108,8 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 | `DRUGGPT_API_HOST` | `127.0.0.1` | API bind host |
 | `DRUGGPT_API_PORT` | `8000` | API bind port |
 | `DRUGGPT_UI_PORT` | `8501` | Legacy setting, unused (frontend is on :3000) |
+| `DRUGGPT_CORS_ORIGINS` | local ports 3000/3001 | Comma-separated browser origins allowed to call the API; add the deployed Vercel URL here |
+| `DRUGGPT_CORS_ORIGIN_REGEX` | local hosts (any port) and `*.vercel.app` | Regex fallback for origins not in the explicit list |
 | `DRUGGPT_MODEL` | `nvidia/nemotron-3.5-lightning:free` | OpenRouter model name |
 | `DRUGGPT_RELEVANCE_THRESHOLD` | `0.35` | minimum **cosine similarity** for grounded answers (`[0, 1]`) |
 | `DRUGGPT_RETRIEVAL_K` | `5` | number of chunks retrieved (`>= 1`) |
