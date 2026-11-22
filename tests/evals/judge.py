@@ -16,7 +16,7 @@ from src.core.runtime import configure_runtime
 
 configure_runtime()
 
-from deepeval.models import DeepEvalBaseLLM  # noqa: E402
+from deepeval.models import DeepEvalBaseLLM  # type: ignore # noqa: E402
 from langchain_openrouter import ChatOpenRouter  # noqa: E402
 
 

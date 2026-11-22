@@ -14,15 +14,15 @@ import json
 from pathlib import Path
 
 import pytest
-from deepeval import assert_test
-from deepeval.metrics import (
+from deepeval import assert_test # type: ignore
+from deepeval.metrics import ( # type: ignore
     AnswerRelevancyMetric,
     FaithfulnessMetric,
     GEval,
     StepEfficiencyMetric,
     TaskCompletionMetric,
 )
-from deepeval.test_case import LLMTestCase, SingleTurnParams
+from deepeval.test_case import LLMTestCase, SingleTurnParams # type: ignore
 
 from tests.evals.harness import run_golden
 from tests.evals.judge import get_judge

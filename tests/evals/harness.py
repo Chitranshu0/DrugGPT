@@ -11,7 +11,7 @@ from src.core.runtime import configure_runtime
 
 configure_runtime()
 
-from deepeval.integrations.langchain import CallbackHandler  # noqa: E402
+from deepeval.integrations.langchain import CallbackHandler  # type: ignore # noqa: E402
 
 from src.core.config import settings  # noqa: E402
 from src.core.models import ChatResponse  # noqa: E402

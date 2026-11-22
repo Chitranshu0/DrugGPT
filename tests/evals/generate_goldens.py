@@ -27,8 +27,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import pymupdf  # noqa: E402
-from deepeval.synthesizer import Synthesizer  # noqa: E402
-from deepeval.synthesizer.config import EvolutionConfig  # noqa: E402
+from deepeval.synthesizer import Synthesizer  # type: ignore # noqa: E402
+from deepeval.synthesizer.config import EvolutionConfig  # type: ignore # noqa: E402
 
 from tests.evals.judge import get_judge  # noqa: E402
 
