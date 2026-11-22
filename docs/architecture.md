@@ -104,8 +104,14 @@ DrugGPT/
 ├── pyproject.toml
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                 # lazy app export for `uvicorn src.main:app`
-│   ├── api/app.py              # FastAPI application
+│   ├── main.py                 # FastAPI composition root (`uvicorn src.main:app`)
+│   ├── api/
+│   │   ├── metadata.py         # OpenAPI version, tags, description
+│   │   ├── errors.py           # global JSON-500 exception handler
+│   │   ├── deps.py             # shared `get_or_404` helper
+│   │   └── routes/             # one `make_router(service)` view module per domain
+│   │       ├── meta.py, index.py, patients.py
+│   │       └── chat.py, reviews.py, clinician.py
 │   ├── core/
 │   │   ├── config.py           # Settings (env/.env, validation, directories)
 │   │   ├── runtime.py          # no-TensorFlow shims (import first in entrypoints)
@@ -176,7 +182,7 @@ uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 streamlit run src/ui/Patient_Chat.py --server.port 8501
 ```
 
-`uvicorn src.main:app` resolves the lazy ``app`` exported by ``src/main.py``; logging is configured at import time so request logs appear immediately in that terminal.
+`uvicorn src.main:app` uses the module-level ``app`` built by ``src/main.py``; runtime shims and logging are configured at import time before the heavy service/route imports, so request logs appear immediately in that terminal. ``src/main.py`` is also the single wiring point: add a new view module to its ``ROUTER_FACTORIES`` tuple to expose it.
 
 The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:8501`. Use the Streamlit sidebar **Rebuild local medical source index** after adding PDFs.
 

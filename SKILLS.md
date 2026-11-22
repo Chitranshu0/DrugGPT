@@ -32,7 +32,9 @@ ruff check .
 ```
 
 ## Architecture
-- `src/api/app.py`: `create_app(service=None)`; FastAPI app with typed REST routes.
+- `src/main.py`: FastAPI composition root; `create_app(service=None)` includes the
+  `make_router(service)` factories from `src/api/routes/{meta,index,patients,chat,reviews,clinician}.py`.
+  Shared API infra lives in `src/api/{metadata,errors,deps}.py`.
 - `src/rag/service.py`: `MedicalRAGService`; LangGraph flow
   `triage -> load_context -> answer (RAG) | clarify | medication_review | emergency | out_of_scope`.
   RAG runs only for `general`/`symptom`. `guardrails.py` is deterministic regex

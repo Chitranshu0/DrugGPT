@@ -63,7 +63,11 @@ src/             # importable as src.* (package root)
 tests/           # pytest suite
 data/            # runtime data (ignored by Git)
 docs/            # this documentation
-src/main.py      # FastAPI backend entrypoint (`uvicorn src.main:app`)
+src/main.py      # FastAPI composition root (`uvicorn src.main:app`)
+src/api/
+  metadata.py, errors.py, deps.py
+  routes/                # one make_router(service) view module per domain
+    meta.py, index.py, patients.py, chat.py, reviews.py, clinician.py
 pyproject.toml   # packaging, pytest, ruff, coverage configuration
 .env             # runtime secrets (untracked)
 src/ui/
@@ -93,7 +97,7 @@ the flow to a developer reading the console after the fact:
 - Good: `Conversation <id> created for patient <id> — awaiting messages`
 - Avoid: terse codes or raw state dumps like `chars=2`, `mode=clarification`, or `Triage result: general`.
 - Errors go in the headline with the exception type and message — the global handler in
-  `src/api/app.py` logs `Request failed: <METHOD> <path> raised <Type>: <message>` and keeps the
+  `src/api/errors.py` logs `Request failed: <METHOD> <path> raised <Type>: <message>` and keeps the
   full traceback via `logger.exception`.
 
 `setup_logging()` demotes chatty third-party libraries (`httpx`, `httpcore`, `chromadb`,

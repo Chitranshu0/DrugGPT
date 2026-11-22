@@ -2,8 +2,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-from src.api.app import create_app
 from src.core.models import ChatStatus
+from src.main import create_app
 from src.rag.service import MedicalRAGService
 from tests.conftest import FakeLLM, FakeRetriever, FakeStore
 
@@ -129,4 +129,31 @@ def test_stream_endpoint_sends_sse_token_and_response_events(app_settings, evide
     assert events[0]["type"] == "token"
     assert events[-1]["type"] == "response"
     assert events[-1]["response"]["answer_mode"] == "source_grounded"
+
+
+def test_all_route_modules_are_wired_into_the_app(app_settings):
+    """Every domain router must be registered through src.main's ROUTER_FACTORIES."""
+    app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM))
+    paths = set(app.openapi()["paths"])
+    expected = {
+        "/",
+        "/health",
+        "/vector-db/status",
+        "/vector-db/rebuild",
+        "/patients",
+        "/patients/{patient_id}",
+        "/patients/{patient_id}/summary",
+        "/patients/{patient_id}/facts",
+        "/patients/{patient_id}/conversations",
+        "/conversations",
+        "/conversations/{conversation_id}/messages",
+        "/conversations/{conversation_id}/messages/since",
+        "/conversations/{conversation_id}/messages/stream",
+        "/conversations/{conversation_id}/transcript",
+        "/conversations/{conversation_id}/clinician-reply",
+        "/reviews",
+        "/reviews/{review_id}",
+        "/reviews/{review_id}/decision",
+    }
+    assert expected <= paths
 

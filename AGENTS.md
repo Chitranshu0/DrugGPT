@@ -20,8 +20,8 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - Docs use bash (`cp`, `mkdir -p`); on Windows use `Copy-Item` / `New-Item -ItemType Directory -Force`.
 
 ## Architecture
-- `src/api/app.py`: FastAPI `create_app(service=None)`; inject a service in tests.
-  `src/main.py` exposes `app` lazily via module `__getattr__` for `uvicorn src.main:app`.
+- `src/main.py`: FastAPI composition root — `create_app(service=None)` builds the app, registers the global error handler, and includes each `make_router(service)` factory from `src/api/routes/{meta,index,patients,chat,reviews,clinician}.py`. Inject a service in tests; `uvicorn src.main:app` uses the module-level `app`. Configure runtime shims and logging before importing the service/route modules.
+- `src/api/`: `metadata.py` (OpenAPI version/tags/description), `errors.py` (global JSON-500 handler), `deps.py` (`get_or_404`). There is no `src/api/app.py`.
 - `src/rag/service.py`: LangGraph flow `triage -> load_context -> answer |
   medication_review | emergency | out_of_scope`; `guardrails.py` is deterministic regex triage.
 - `src/rag/indexing.py`: rebuilds Chroma collection `medical_rag` from non-recursive
