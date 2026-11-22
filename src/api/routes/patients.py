@@ -59,6 +59,17 @@ def make_router(service: MedicalRAGService) -> APIRouter:
             lambda: service.store.update_patient(patient_id, **request.model_dump(exclude_unset=True))
         )
 
+    @router.delete(
+        "/{patient_id}",
+        tags=["Patients"],
+        summary="Delete a patient",
+        status_code=204,
+        responses={404: {"description": "Patient not found"}},
+    )
+    def delete_patient(patient_id: str) -> None:
+        get_or_404(lambda: service.store.delete_patient(patient_id))
+        logger.info("Patient %s deleted", patient_id)
+
     @router.get(
         "/{patient_id}/summary",
         response_model=PatientSummary,

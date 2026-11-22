@@ -91,6 +91,9 @@ Get a patient. `404` if not found.
 ### `PATCH /patients/{patient_id}`
 Update a patient.
 
+### `DELETE /patients/{patient_id}`
+Delete a patient and all of their related records (facts, summaries, conversations, messages, and reviews). Returns `204 No Content`; `404` if the patient is not found.
+
 ### `GET /patients/{patient_id}/summary`
 Get patient summary with approved facts.
 

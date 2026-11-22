@@ -133,6 +133,21 @@ class LocalStore:
             )
         return self.get_patient(patient_id)
 
+    def delete_patient(self, patient_id: str) -> None:
+        """Delete a patient and all dependent records (no FK cascade is configured)."""
+        self.get_patient(patient_id)
+        with self._connection() as conn:
+            conn.execute(
+                "DELETE FROM messages WHERE conversation_id IN "
+                "(SELECT id FROM conversations WHERE patient_id=?)",
+                (patient_id,),
+            )
+            conn.execute("DELETE FROM medication_reviews WHERE patient_id=?", (patient_id,))
+            conn.execute("DELETE FROM conversations WHERE patient_id=?", (patient_id,))
+            conn.execute("DELETE FROM patient_facts WHERE patient_id=?", (patient_id,))
+            conn.execute("DELETE FROM clinical_summaries WHERE patient_id=?", (patient_id,))
+            conn.execute("DELETE FROM patients WHERE id=?", (patient_id,))
+
     def add_fact(self, patient_id: str, category: str, value: str, approved: bool) -> PatientFact:
         self.get_patient(patient_id)
         fact_id, now = str(uuid4()), _now()

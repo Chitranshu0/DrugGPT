@@ -106,6 +106,18 @@ def test_clinician_reply_endpoint(app_settings):
     assert store.decided["guidance"] == "Take it with food."
 
 
+def test_delete_patient_returns_204_then_404(app_settings, fake_store):
+    app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=fake_store))
+    client = TestClient(app)
+
+    response = client.delete("/patients/patient-1")
+    assert response.status_code == 204, response.text
+    assert response.content == b""
+    assert fake_store.deleted_patient_ids == ["patient-1"]
+
+    assert client.delete("/patients/patient-1").status_code == 404
+
+
 def test_stream_endpoint_sends_sse_token_and_response_events(app_settings, evidence, fake_store):
     class StreamLLM(FakeLLM):
         def stream(self, values):
@@ -156,4 +168,5 @@ def test_all_route_modules_are_wired_into_the_app(app_settings):
         "/reviews/{review_id}/decision",
     }
     assert expected <= paths
+    assert "delete" in app.openapi()["paths"]["/patients/{patient_id}"]
 

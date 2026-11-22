@@ -63,6 +63,7 @@ class FakeStore:
         self.patient_id = patient_id
         self.messages: dict[str, list[ConversationMessage]] = {}
         self.reviews: dict[str, object] = {}
+        self.deleted_patient_ids: list[str] = []
 
     def get_patient(self, patient_id: str) -> Patient:
         return Patient(
@@ -73,6 +74,11 @@ class FakeStore:
             created_at=_now(),
             updated_at=_now(),
         )
+
+    def delete_patient(self, patient_id: str) -> None:
+        if patient_id in self.deleted_patient_ids:
+            raise KeyError("Patient not found")
+        self.deleted_patient_ids.append(patient_id)
 
     def list_facts(self, patient_id: str, approved_only: bool = False):
         return []
