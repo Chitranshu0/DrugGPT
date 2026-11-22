@@ -206,6 +206,14 @@ class LocalStore:
             ).fetchall()
         return [self._conversation(row) for row in rows]
 
+    def delete_conversation(self, conversation_id: str) -> None:
+        """Delete a conversation and all dependent records (no FK cascade is configured)."""
+        self.get_conversation(conversation_id)
+        with self._connection() as conn:
+            conn.execute("DELETE FROM messages WHERE conversation_id=?", (conversation_id,))
+            conn.execute("DELETE FROM medication_reviews WHERE conversation_id=?", (conversation_id,))
+            conn.execute("DELETE FROM conversations WHERE id=?", (conversation_id,))
+
     def open_review_for_conversation(self, conversation_id: str) -> MedicationReview | None:
         self.get_conversation(conversation_id)
         with self._connection() as conn:

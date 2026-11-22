@@ -4,14 +4,17 @@ import logging
 import sqlite3
 import time
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import StructuredTool
 from langchain_openrouter import ChatOpenRouter
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
@@ -54,6 +57,9 @@ Source excerpts:
 Patient context (use only if relevant):
 {patient_context}
 
+Recent conversation:
+{history}
+
 Question: {question}""")
 GENERAL_PROMPT = ChatPromptTemplate.from_template("""You are DrugGPT, a helpful medical education assistant.
 Give a concise, empathetic, plain-language educational answer to the question. Do not diagnose, prescribe,
@@ -92,6 +98,11 @@ class AgentState(TypedDict, total=False):
     conversation_id: str
     message_id: str
     thread_id: str
+    # Checkpointed conversation memory. The add_messages reducer merges by
+    # message id, so replaying a node (e.g. after an interrupt) cannot duplicate turns.
+    messages: Annotated[list[AnyMessage], add_messages]
+    # Set only for the streaming path's checkpoint write-back; see _route_start.
+    persist_only: bool
     triage: str
     patient_context: str
     history: str
@@ -127,14 +138,19 @@ class MedicalRAGService:
         app_settings: Settings = settings,
         llm_factory: Callable[[], object] | None = None,
         store: LocalStore | None = None,
+        checkpointer: BaseCheckpointSaver | None = None,
     ) -> None:
         self.settings = app_settings
         self.retriever = retriever or MedicalRetriever(app_settings)
         self.store = store or LocalStore(app_settings.application_db)
         self.llm_factory = llm_factory or self._default_llm
-        app_settings.checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_connection = sqlite3.connect(app_settings.checkpoint_db, check_same_thread=False)
-        self.checkpointer = SqliteSaver(self._checkpoint_connection)
+        self._checkpoint_connection: sqlite3.Connection | None = None
+        if checkpointer is None:
+            app_settings.checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
+            self._checkpoint_connection = sqlite3.connect(app_settings.checkpoint_db, check_same_thread=False)
+            self.checkpointer = SqliteSaver(self._checkpoint_connection)
+        else:
+            self.checkpointer = checkpointer
         self.checkpointer.setup()
         self._search_tool = StructuredTool.from_function(
             func=self.search_medical_sources,
@@ -143,6 +159,34 @@ class MedicalRAGService:
         )
         self.graph = self._build_graph()
         logger.info("MedicalRAGService ready (model=%s, k=%d)", app_settings.llm_model, app_settings.retrieval_k)
+
+    @staticmethod
+    def _conversation_thread_id(conversation_id: str) -> str:
+        """One checkpoint thread per conversation, so every turn sees earlier turns."""
+        return f"conversation:{conversation_id}"
+
+    @staticmethod
+    def _review_thread_id(conversation_id: str, message_id: str) -> str:
+        """Reviews get their own thread so a paused interrupt never blocks the conversation."""
+        return f"conversation:{conversation_id}:review:{message_id}"
+
+    @staticmethod
+    def _format_history(messages: list[AnyMessage]) -> str:
+        lines: list[str] = []
+        for message in messages:
+            role = "user" if isinstance(message, HumanMessage) else "assistant"
+            content = str(message.content).strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines) or "No earlier messages."
+
+    def _saved_messages(self, thread_id: str) -> list[AnyMessage]:
+        """Read the conversation already checkpointed for this thread."""
+        saved = self.checkpointer.get_tuple({"configurable": {"thread_id": thread_id}})
+        if saved is None:
+            return []
+        values = saved.checkpoint.get("channel_values") or {}
+        return list(values.get("messages") or [])
 
     def _default_llm(self) -> ChatOpenRouter:
         if not self.settings.openrouter_api_key:
@@ -214,8 +258,17 @@ class MedicalRAGService:
         facts = self.store.list_facts(patient.id, approved_only=True)
         facts_text = "; ".join(f"{fact.category}: {fact.value}" for fact in facts) or "No approved facts recorded."
         summary = self.store.latest_summary(patient.id) or "No approved clinical summary recorded."
-        messages = self.store.list_messages(state["conversation_id"], limit=8)
-        history = "\n".join(f"{message.role}: {message.content}" for message in messages) or "No earlier messages."
+
+        # The checkpointer is the source of truth for conversational memory.
+        checkpoint_lines = self._format_history(state.get("messages", [])).splitlines()
+        if checkpoint_lines == ["No earlier messages."]:
+            checkpoint_lines = []
+        rows = self.store.list_messages(state["conversation_id"], limit=8)
+        store_lines = [f"{row.role}: {row.content}" for row in rows]
+        seen = set(checkpoint_lines)
+        extra = [line for line in store_lines if line not in seen]
+        history = "\n".join([*checkpoint_lines, *extra]) or "No earlier messages."
+
         return {"patient_context": f"Patient: {patient.name}. Summary: {summary}. Facts: {facts_text}", "history": history}
 
     def _prepare_general_answer(
@@ -248,6 +301,7 @@ class MedicalRAGService:
                 {
                     "context": context,
                     "patient_context": state["patient_context"],
+                    "history": state["history"],
                     "question": state["question"],
                 },
                 [citation.model_dump() for citation in citations_from_evidence(acceptable)],
@@ -286,6 +340,37 @@ class MedicalRAGService:
             "tool_activity": tool_activity,
             "answer_mode": answer_mode,
         }
+
+    @staticmethod
+    def _route_start(state: AgentState) -> str:
+        """Streaming persistence uses the same graph but skips generation."""
+        return "persist_memory" if state.get("persist_only") else "triage"
+
+    def _reset_turn_node(self, state: AgentState) -> AgentState:
+        """Clear per-turn reply fields so an earlier turn cannot leak into this one."""
+        return {
+            "answer": "",
+            "status": "",
+            "sources": [],
+            "tool_activity": {},
+            "answer_mode": "",
+            "review_id": "",
+            "review_status": "",
+        }
+
+    def _remember_user_node(self, state: AgentState) -> AgentState:
+        return {"messages": [HumanMessage(content=state["question"], id=f"user-{state['message_id']}")]}
+
+    def _store_answer_node(self, state: AgentState) -> AgentState:
+        answer = str(state.get("answer") or "").strip()
+        if not answer:
+            return {}
+        return {"messages": [AIMessage(content=answer, id=f"assistant-{state['message_id']}")]}
+
+    @staticmethod
+    def _persist_memory_node(state: AgentState) -> AgentState:
+        """Checkpoint-only route: the invoke input already carries the new messages."""
+        return {}
 
     def _emergency_node(self, state: AgentState) -> AgentState:
         return {"answer": EMERGENCY_MESSAGE, "status": ChatStatus.EMERGENCY_GUIDANCE.value, "answer_mode": "emergency"}
@@ -353,28 +438,35 @@ class MedicalRAGService:
         graph = StateGraph(AgentState)
         graph.add_node("triage", self._triage_node)
         graph.add_node("load_context", self._load_context_node)
+        graph.add_node("reset_turn", self._reset_turn_node)
+        graph.add_node("remember_user", self._remember_user_node)
         graph.add_node("answer", self._general_answer_node)
         graph.add_node("clarify", self._clarify_node)
         graph.add_node("emergency", self._emergency_node)
         graph.add_node("out_of_scope", self._out_of_scope_node)
         graph.add_node("medication_review", self._review_node)
-        graph.add_edge(START, "triage")
-        graph.add_conditional_edges("triage", self._route, {
-            Triage.GENERAL.value: "load_context", Triage.SYMPTOM.value: "load_context",
-            Triage.NEEDS_MORE_INFORMATION.value: "load_context",
-            **{triage.value: "load_context" for triage in CLINICIAN_REVIEW_TRIAGE},
-            Triage.EMERGENCY.value: "emergency", Triage.OUT_OF_SCOPE.value: "out_of_scope",
+        graph.add_node("store_answer", self._store_answer_node)
+        graph.add_node("persist_memory", self._persist_memory_node)
+        graph.add_conditional_edges(START, self._route_start, {
+            "triage": "triage", "persist_memory": "persist_memory",
         })
-        graph.add_conditional_edges("load_context", self._route, {
+        graph.add_edge("persist_memory", END)
+        # Every turn loads context (cheap DB reads, no LLM), gets a fresh state,
+        # and is recorded in checkpointed memory - including emergency/scope notices.
+        graph.add_conditional_edges("triage", self._route, {
+            triage.value: "load_context" for triage in Triage
+        })
+        graph.add_edge("load_context", "reset_turn")
+        graph.add_edge("reset_turn", "remember_user")
+        graph.add_conditional_edges("remember_user", self._route, {
             Triage.GENERAL.value: "answer", Triage.SYMPTOM.value: "answer",
             Triage.NEEDS_MORE_INFORMATION.value: "clarify",
             **{triage.value: "medication_review" for triage in CLINICIAN_REVIEW_TRIAGE},
+            Triage.EMERGENCY.value: "emergency", Triage.OUT_OF_SCOPE.value: "out_of_scope",
         })
-        graph.add_edge("answer", END)
-        graph.add_edge("clarify", END)
-        graph.add_edge("emergency", END)
-        graph.add_edge("out_of_scope", END)
-        graph.add_edge("medication_review", END)
+        for node in ("answer", "clarify", "emergency", "out_of_scope", "medication_review"):
+            graph.add_edge(node, "store_answer")
+        graph.add_edge("store_answer", END)
         return graph.compile(checkpointer=self.checkpointer)
 
     def _response_from_state(self, state: dict[str, Any], thread_id: str) -> ChatResponse:
@@ -401,13 +493,20 @@ class MedicalRAGService:
         )
         conversation = self.store.get_conversation(conversation_id)
         user_message = self.store.add_message(conversation_id, "user", message)
-        thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
+        # Educational turns share one checkpoint thread so the graph remembers the
+        # conversation. Reviews keep a per-request thread for their interrupt/resume.
+        triage = triage_query(message)
+        thread_id = (
+            self._review_thread_id(conversation_id, user_message.id)
+            if triage in CLINICIAN_REVIEW_TRIAGE
+            else self._conversation_thread_id(conversation_id)
+        )
         graph_config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
         if callbacks:
             graph_config["callbacks"] = callbacks
         result = self.graph.invoke(
             {"question": message, "patient_id": conversation.patient_id, "conversation_id": conversation_id,
-             "message_id": user_message.id, "thread_id": thread_id},
+             "message_id": user_message.id, "thread_id": thread_id, "persist_only": False},
             config=graph_config,
         )
         review = self.store.find_pending_review(thread_id)
@@ -460,13 +559,16 @@ class MedicalRAGService:
             return
 
         user_message = self.store.add_message(conversation_id, "user", message)
-        thread_id = f"conversation:{conversation_id}:message:{user_message.id}"
+        thread_id = self._conversation_thread_id(conversation_id)
         state: AgentState = {
             "question": message,
             "patient_id": conversation.patient_id,
             "conversation_id": conversation_id,
             "message_id": user_message.id,
             "thread_id": thread_id,
+            # Restore earlier turns from the same SQLite-backed checkpoint thread.
+            "messages": self._saved_messages(thread_id),
+            "persist_only": False,
         }
         state.update(self._load_context_node(state))
         prompt, values, sources, tool_activity, answer_mode = self._prepare_general_answer(state)
@@ -494,6 +596,18 @@ class MedicalRAGService:
         )
         self.store.add_message(
             conversation_id, "assistant", response.answer, response.status.value, response.model_dump(mode="json")
+        )
+        # Write the exchange back to the same checkpoint thread so the next turn
+        # (streamed or not) restores it from SQLite.
+        self.graph.invoke(
+            {
+                "persist_only": True,
+                "messages": [
+                    HumanMessage(content=message, id=f"user-{user_message.id}"),
+                    AIMessage(content=answer, id=f"assistant-{user_message.id}"),
+                ],
+            },
+            config={"configurable": {"thread_id": thread_id}},
         )
         logger.info(
             "Streamed message %s completed: status=%s, answer_mode=%s - assistant reply stored",

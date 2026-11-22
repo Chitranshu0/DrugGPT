@@ -44,9 +44,12 @@ in `Frontend/` + LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python
 - Clarifications are deterministic (no LLM call) unless `DRUGGPT_LLM_CLARIFY=1`.
 - `/v1/models` is an OpenAI-compatible shim for external probes; nothing in this repo calls it.
 - `Settings.validate()` blocks non-loopback binds unless `DRUGGPT_ALLOW_REMOTE=1` (no auth).
+- LangGraph checkpoints use **one SQLite thread per conversation** (`conversation:{id}`) so `SqliteSaver` restores earlier turns from `data/checkpoints/langgraph.db`. `AgentState.messages` uses the `add_messages` reducer with stable IDs (`user-{message_id}` / `assistant-{message_id}`), so replaying a node after an interrupt cannot duplicate turns. `reset_turn` clears reply fields; `load_context` prefers checkpointed history over `LocalStore`. The streaming endpoint restores via `get_tuple` and writes back through a `persist_only` route on the same graph. Never revert the thread to a per-message value.
 - Medication requests use LangGraph `interrupt()`; the review row is saved before the
   interrupt and resumed with `Command(resume=...)` keyed by the stored `graph_thread_id`.
-  Keep that pairing intact.
+  Reviews use a **separate** thread (`conversation:{id}:review:{message_id}`) so a paused
+  gate does not block later turns on the conversation thread. Keep that pairing intact.
+- `MedicalRAGService` accepts an injectable `checkpointer` (default `SqliteSaver` on `checkpoint_db`); tests inject a temp SQLite saver in `tests/test_checkpoint_memory.py`.
 - `Settings` is a frozen dataclass re-reading env on each instantiation, but
   `MedicalRAGService(app_settings=settings)` binds the default at import. Tests use
   `dataclasses.replace(Settings(), ...)` and inject `FakeRetriever`/`FakeLLM`/`FakeStore`.

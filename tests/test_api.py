@@ -180,6 +180,18 @@ def test_delete_patient_returns_204_then_404(app_settings, fake_store):
     assert client.delete("/patients/patient-1").status_code == 404
 
 
+def test_delete_conversation_returns_204_then_404(app_settings, fake_store):
+    app = create_app(MedicalRAGService(FakeRetriever(), app_settings, llm_factory=FakeLLM, store=fake_store))
+    client = TestClient(app)
+
+    response = client.delete("/conversations/conv-1")
+    assert response.status_code == 204, response.text
+    assert response.content == b""
+    assert fake_store.deleted_conversation_ids == ["conv-1"]
+
+    assert client.delete("/conversations/conv-1").status_code == 404
+
+
 def test_stream_endpoint_sends_sse_token_and_response_events(app_settings, evidence, fake_store):
     class StreamLLM(FakeLLM):
         def stream(self, values):
@@ -220,6 +232,7 @@ def test_all_route_modules_are_wired_into_the_app(app_settings):
         "/patients/{patient_id}/facts",
         "/patients/{patient_id}/conversations",
         "/conversations",
+        "/conversations/{conversation_id}",
         "/conversations/{conversation_id}/messages",
         "/conversations/{conversation_id}/messages/since",
         "/conversations/{conversation_id}/messages/stream",
@@ -231,4 +244,5 @@ def test_all_route_modules_are_wired_into_the_app(app_settings):
     }
     assert expected <= paths
     assert "delete" in app.openapi()["paths"]["/patients/{patient_id}"]
+    assert "delete" in app.openapi()["paths"]["/conversations/{conversation_id}"]
 

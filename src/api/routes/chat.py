@@ -41,6 +41,21 @@ def make_router(service: MedicalRAGService) -> APIRouter:
         )
         return conversation
 
+    @router.delete(
+        "/{conversation_id}",
+        tags=["Chat"],
+        summary="Delete a conversation",
+        description=(
+            "Permanently delete a conversation and all of its messages and associated clinician reviews. "
+            "This action cannot be undone."
+        ),
+        status_code=204,
+        responses={404: {"description": "Conversation not found"}},
+    )
+    def delete_conversation(conversation_id: str) -> None:
+        get_or_404(lambda: service.store.delete_conversation(conversation_id))
+        logger.info("Conversation %s deleted", conversation_id)
+
     @router.get(
         "/{conversation_id}/messages",
         response_model=list[ConversationMessage],

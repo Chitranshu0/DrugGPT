@@ -68,7 +68,9 @@ flowchart TD
 1. **User sends a message** — the Next.js UI posts to `POST /conversations/{id}/messages`.
 2. **FastAPI validates and loads** — the route checks the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
 3. **LangGraph runs `triage`** — deterministic regex rules classify the message as emergency, out-of-scope, needs-more-information, general, symptom, or one of four personal-decision types.
-4. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
+4. **`load_context` adds memory** — approved patient facts, the latest summary, and conversation history are added to the graph state. History is read primarily from the checkpointed `messages` channel, with the last eight `LocalStore` messages as a fallback. Both the grounded and general prompts receive it.
+
+   **Checkpoint threads:** ordinary turns share one SQLite thread, `conversation:{id}`, so each turn restores the previous turns' state from `data/checkpoints/langgraph.db`; a `reset_turn` node clears per-reply fields and `remember_user` / `store_answer` append to `messages`. Personal-decision requests instead use `conversation:{id}:review:{message_id}` so a paused `interrupt()` never blocks later turns on the conversation thread. The streaming endpoint restores and writes back the same conversation thread.
 5. **The graph picks one response path**:
    - **Emergency / out-of-scope** → immediate fixed guidance.
    - **Unclear** → the `clarify` node returns a fixed, reviewed follow-up question with no LLM call (opt in with `DRUGGPT_LLM_CLARIFY=1` for a prompt-generated one); no retrieval, no medical advice.

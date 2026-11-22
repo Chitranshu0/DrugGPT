@@ -1,7 +1,6 @@
 """ASGI entrypoint and composition root for the DrugGPT FastAPI backend.
 
-Runtime shims and logging are configured first, then the API is assembled from
-the per-domain route modules listed in ``ROUTER_FACTORIES`` below. Run with
+ Run with
 ``uvicorn src.main:app --reload``.
 """
 
@@ -27,7 +26,6 @@ from src.rag.service import MedicalRAGService  # noqa: E402
 
 logger = logging.getLogger("druggpt.api")
 
-# Add a new view module here; each factory binds the same service into its handlers.
 ROUTER_FACTORIES = (
     meta.make_router,
     index.make_router,
@@ -44,17 +42,9 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
     app = FastAPI(
         title="DrugGPT API",
         version=API_VERSION,
-        description=DESCRIPTION,
-        contact={
-            "name": "DrugGPT maintainers",
-            "url": "https://github.com/",
-        },
-        license_info={"name": "MIT"},
-        terms_of_service="https://github.com/",
-        openapi_tags=TAGS_METADATA,
+        description=DESCRIPTION
     )
-    # The Next.js frontend is a different origin, so browsers send an OPTIONS
-    # preflight before JSON requests. Without CORS middleware FastAPI answers 405.
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(rag_service.settings.cors_origins),
@@ -65,8 +55,6 @@ def create_app(service: MedicalRAGService | None = None) -> FastAPI:
         allow_private_network=True,
     )
 
-    # CORSMiddleware answers rejected preflights itself (400), so log the details
-    # here from the outer middleware layer to make the cause visible in the terminal.
     @app.middleware("http")
     async def log_rejected_preflights(request: Request, call_next):
         response = await call_next(request)

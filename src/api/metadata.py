@@ -18,9 +18,10 @@ TAGS_METADATA = [
     {
         "name": "Chat",
         "description": (
-            "Send messages and read conversation history. LangGraph routes each message to an "
-            "educational answer, a clarification question, emergency/scope guidance, or a "
-            "`review_pending` status when a clinician must review a personal health decision."
+            "Create, read, and delete conversations and their message history. LangGraph routes each "
+            "message to an educational answer, a clarification question, emergency/scope guidance, or "
+            "a `review_pending` status when a clinician must review a personal health decision. "
+            "Deleting a conversation also removes its messages and any associated clinician reviews."
         ),
     },
     {
@@ -45,6 +46,7 @@ DESCRIPTION = (
     "to RAG-backed education, a clarification question, emergency/scope guidance, or clinician review.\n"
     "4. If the response status is `review_pending`, decide it with "
     "`POST /reviews/{review_id}/decision` or reply with "
-    "`POST /conversations/{conversation_id}/clinician-reply`.\n\n"
+    "`POST /conversations/{conversation_id}/clinician-reply`.\n"
+    "5. `DELETE /conversations/{conversation_id}` permanently removes a chat and its history.\n\n"
     "This service is **not** a medical device and must not be used for real clinical decisions."
 )

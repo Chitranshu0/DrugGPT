@@ -51,5 +51,5 @@ Only chunks with `score >= DRUGGPT_RELEVANCE_THRESHOLD` are passed to the LLM; o
 
 - `data/raw/` — licensed PDFs (untracked)
 - `data/chroma/` — disposable Chroma index (untracked)
-- `data/checkpoints/` — LangGraph conversation checkpoints (untracked)
+- `data/checkpoints/` — LangGraph conversation checkpoints (untracked); one thread per conversation (`conversation:{id}`) stores the accumulated `messages` state, so restarting the service restores earlier turns. Personal-decision reviews use a separate `conversation:{id}:review:{message_id}` thread.
 - `data/druggpt.db` — SQLite store for patients/conversations/reviews (untracked)
