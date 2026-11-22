@@ -1,14 +1,14 @@
 # AGENTS.md
 
 ## What this is
-Local-first, source-grounded medical education RAG app (FastAPI + Streamlit +
-LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
+Local-first, source-grounded medical education RAG app (FastAPI + Next.js frontend
+in `Frontend/` + LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 `src/` is the package root (`from src...`); run all commands from the repo root.
 
 ## Commands (PowerShell on this machine)
 - Install: `python -m venv .venv`, `.\.venv\Scripts\Activate.ps1`, `pip install -e ".[dev]"`
 - Backend :8000: `uvicorn src.main:app --reload`
-- Frontend :8501: `streamlit run src/ui/Patient_Chat.py --server.port 8501`
+- Frontend :3000: `cd Frontend && npm install && npm run dev` (Vercel-ready Next.js app)
 - Tests: `pytest` (offline); single test:
   `pytest tests/test_service.py::test_citations_preserve_page_and_source`
 - DeepEval build loop: `deepeval test run tests/evals/test_druggpt.py` (real index + OpenRouter;
@@ -28,9 +28,9 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
   `data/raw/*.pdf` (1000/150 chunks, `all-MiniLM-L6-v2`); `retrieval.py` returns `Evidence`.
 - `src/core/persistence.py`: SQLite `LocalStore`; `src/core/models.py`: Pydantic API models.
 - `src/core/runtime.py`: `configure_runtime()` disables TensorFlow before heavy imports; call it first in every entrypoint.
-- Streamlit pages read `DRUGGPT_API_URL` at import; each page uses `get_client()` from
-  `src.ui.api_client`. Each entrypoint also adds the repo root to `sys.path`, so direct
-  `streamlit run` works without an editable install.
+- Frontend (`Frontend/`) is a separate npm project. All backend calls go through
+  `src/lib/api/` (`types.ts`, `client.ts`, `mock.ts`, `index.ts`); `NEXT_PUBLIC_API_BASE_URL`
+  selects the real FastAPI backend, otherwise seeded mock data is used.
 
 ## Non-obvious behavior
 - No index, or no chunk >= `DRUGGPT_RELEVANCE_THRESHOLD`, still returns HTTP 200 with
@@ -60,8 +60,8 @@ LangGraph + ChromaDB + OpenRouter). Not a clinical tool. Python 3.11+.
 - `POST /conversations/{id}/clinician-reply` records a free-text clinician message and
   closes the open review as approved.
 - `GET /conversations/{id}/transcript` returns messages + open review + issue context.
-- Same Streamlit app; the clinician page reviews pending requests against one backend
-  and one SQLite DB.
+- Same backend and SQLite DB; the Next.js professional workspace reviews pending
+  requests in its Requests tab.
 
 ## Data and safety
 - Never commit `.env` or anything under `data/` (`raw/`, `chroma/`, `checkpoints/`, `druggpt.db`).

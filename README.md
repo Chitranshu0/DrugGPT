@@ -7,18 +7,18 @@ It is designed for students and researchers. It is not a diagnostic, prescribing
 ## What it does
 
 - FastAPI backend with typed JSON chat responses
-- Streamlit chat interface with visible RAG tool activity and source cards
+- Next.js frontend (Vercel-ready) with patient chat and a drug-professional review console
 - Local ChromaDB vector index for licensed medical PDFs
 - LangGraph state graph that routes each message: triage → context → RAG answer / clarification / emergency / clinician review
 - Deterministic safety guardrails; RAG is invoked only for educational questions
 - Human-in-the-loop for personal decisions about medicines, tests, treatments, and test reports
 - Educational-only scope — not a diagnostic, prescribing, or emergency-care service
 - Pytest and Ruff configuration for repeatable development
-- Two entrypoints: `uvicorn src.main:app` (backend) and `streamlit run` (frontend)
+- Two apps: FastAPI backend (`uvicorn src.main:app`) and the Next.js frontend in `Frontend/`
 
 ## Architecture
 
-`Streamlit UI → FastAPI → LangGraph triage → context → (RAG answer | clarification | emergency/scope | clinician review) → ChatResponse`
+`Next.js UI → FastAPI → LangGraph triage → context → (RAG answer | clarification | emergency/scope | clinician review) → ChatResponse`
 
 LangGraph owns the conversation flow; FastAPI owns the HTTP boundary. RAG (`search_medical_sources` → ChromaDB) is invoked only on the educational/symptom path. Personal clinical decisions pause for a human clinician before any guidance is shown. See [the architecture doc](docs/architecture.md) for the full flow diagram.
 
@@ -38,8 +38,10 @@ mkdir -p data/raw
 # Terminal 1: FastAPI backend (:8000)
 uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
-# Terminal 2: Streamlit frontend (:8501)
-streamlit run src/ui/Patient_Chat.py --server.port 8501
+# Terminal 2: Next.js frontend (:3000) — see Frontend/README.md
+cd Frontend
+npm install
+npm run dev
 ```
 
 ### Individual commands
@@ -47,11 +49,11 @@ streamlit run src/ui/Patient_Chat.py --server.port 8501
 | Command | What it does |
 |---------|--------------|
 | `uvicorn src.main:app --reload` | FastAPI backend only (:8000) |
-| `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
+| `cd Frontend && npm run dev` | Next.js frontend only (:3000) |
 
-There is no `python main.py` or `python app.py`; run uvicorn and Streamlit directly.
+There is no `python main.py` or `python app.py`; run uvicorn directly.
 
-**Upgrading an existing checkout:** rebuild the index once (for example with the **Rebuild local medical source index** button in the Admin page). The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
+**Upgrading an existing checkout:** rebuild the index once with `POST /vector-db/rebuild`. The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
 
 Chat answers can also be streamed through `POST /conversations/{id}/messages/stream` (server-sent events); guardrails and clinician review are unchanged.
 

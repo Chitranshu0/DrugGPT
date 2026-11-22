@@ -2,24 +2,24 @@
 
 This file gives coding agents the project context needed to work on DrugGPT safely.
 DrugGPT is a **local-first, source-grounded medical education RAG app** (FastAPI +
-Streamlit + LangGraph + ChromaDB + OpenRouter). It is **not** a clinical tool.
+Next.js frontend in `Frontend/` + LangGraph + ChromaDB + OpenRouter). It is **not** a clinical tool.
 
 ## Purpose
 Answer medical science / drug-study questions conversationally. LangGraph routes
 each message: educational questions use RAG over locally indexed PDFs; vague
 messages get one clarifying question; personal clinical decisions (medicine,
 test, treatment, test report) pause for clinician review. Emergency and
-out-of-scope messages never call the LLM. Patients chat with an AI; doctors can
-intervene in the same Streamlit UI.
+out-of-scope messages never call the LLM. Patients chat with an AI; drug professionals
+review and reply in the Next.js professional workspace.
 
 ## How to run (the only supported commands)
 Terminal 1 — FastAPI backend (:8000):
 ```
 uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
-Terminal 2 — Streamlit UI (:8501):
+Terminal 2 — Next.js UI (:3000), see `Frontend/README.md`:
 ```
-streamlit run src/ui/Patient_Chat.py --server.port 8501
+cd Frontend && npm install && npm run dev
 ```
 There is no `python main.py` and no `python app.py`. `src/main.py` exposes a lazy
 `app` via PEP 562 `__getattr__` for uvicorn.
@@ -45,10 +45,11 @@ ruff check .
 - `src/rag/retrieval.py`: returns `Evidence` with source/path/page/score.
 - `src/core/persistence.py`: SQLite `LocalStore`; unauthenticated, demo-only.
 - `src/core/models.py`: Pydantic API models (`ChatResponse`, `Conversation`, ...).
-- `src/ui/Patient_Chat.py`: patient chat page.
-- `src/ui/pages/2_Clinician_Chat.py`: clinician transcript + reply page.
-- `src/ui/pages/1_Patient_Profile.py`, `3_Admin.py`: supporting pages.
-- `src/ui/api_client.py`: shared `DrugGPTApiClient` + `get_client()` factory.
+- `Frontend/src/app/`: Next.js App Router entrypoint.
+- `Frontend/src/components/role-gate.tsx`: patient vs drug-professional toggle (no auth).
+- `Frontend/src/components/chat/`: patient/professional chat with streaming and sources.
+- `Frontend/src/components/professional/`: request review console.
+- `Frontend/src/lib/api/`: typed `DrugGPTApi`, HTTP client (SSE), mock adapter, env selector.
 
 ## Non-obvious behavior (do not break)
 - No index / no chunk >= `DRUGGPT_RELEVANCE_THRESHOLD` still returns HTTP 200 with
@@ -68,8 +69,8 @@ ruff check .
 - `POST /conversations/{id}/clinician-reply` records a free-text clinician message and
   closes the open review as approved.
 - `GET /conversations/{id}/transcript`: messages + open review + issue context.
-- Same Streamlit app; the clinician page reviews pending requests against one backend
-  and one SQLite DB.
+- Same backend and SQLite DB; the Next.js professional workspace reviews pending
+  requests in its Requests tab.
 
 ## Data and safety
 - Never commit `.env` or anything under `data/` (`raw/`, `chroma/`,

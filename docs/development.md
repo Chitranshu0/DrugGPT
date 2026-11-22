@@ -22,7 +22,7 @@ pytest tests/test_retrieval.py tests/test_indexing.py   # scoring, schema detect
 pytest tests/test_service.py tests/test_api.py          # streaming, guardrails, clinician review
 ```
 
-`src.core.runtime.configure_runtime()` is called first in every entrypoint (uvicorn target and Streamlit pages). It disables TensorFlow before heavy imports and suppresses the Python-EOL warning from `google.api_core`. Add the same call to any new entrypoint.
+`src.core.runtime.configure_runtime()` is called first in the backend entrypoint (uvicorn target). It disables TensorFlow before heavy imports and suppresses the Python-EOL warning from `google.api_core`. Add the same call to any new entrypoint.
 
 ## DeepEval build loop
 
@@ -70,13 +70,10 @@ src/api/
     meta.py, index.py, patients.py, chat.py, reviews.py, clinician.py
 pyproject.toml   # packaging, pytest, ruff, coverage configuration
 .env             # runtime secrets (untracked)
-src/ui/
-  Patient_Chat.py          # patient chat page
-  pages/
-    1_Patient_Profile.py
-    2_Clinician_Chat.py    # clinician transcript + reply page
-    3_Admin.py
-  api_client.py            # shared HTTP client + get_client()
+Frontend/                # separate npm project: Next.js UI, Vercel-ready
+  src/app/               # layout + entry page (role gate)
+  src/components/        # chat, professional workspace, UI primitives
+  src/lib/api/           # types, HTTP client (SSE), mock adapter
 ```
 
 ## Logging

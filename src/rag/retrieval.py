@@ -111,7 +111,7 @@ class MedicalRetriever:
             if needs_rebuild:
                 message = (
                     f"Index schema is outdated (space={metric}, version={stored_version}); "
-                    "rebuild it from the Admin page or POST /vector-db/rebuild to use cosine similarity."
+                    "rebuild it with POST /vector-db/rebuild to use cosine similarity."
                 )
                 logger.warning(message)
             return DatabaseStatus(

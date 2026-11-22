@@ -4,7 +4,7 @@ Only add PDFs that you are licensed or otherwise authorized to process. Keep the
 
 ## Indexing
 
-Use the **Rebuild local medical source index** button in the Admin page to:
+Call `POST /vector-db/rebuild` to:
 
 1. Load every PDF under `data/raw` with `PyMuPDFLoader`.
 2. Drop low-value pages: front matter (`DRUGGPT_SKIP_FRONT_MATTER_PAGES`), dedications, tables of contents, indexes, bibliographies, and numeric/index-style pages. Very short chunks (`DRUGGPT_MIN_CHUNK_CHARS`) are also discarded. This matters because the original corpus was dominated by a 5,000-page textbook whose index and dedication pages out-ranked real content.

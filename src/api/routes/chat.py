@@ -56,7 +56,7 @@ def make_router(service: MedicalRAGService) -> APIRouter:
         summary="List only messages added after a given message id",
     )
     def list_messages_since(conversation_id: str, after: str | None = None) -> dict[str, object]:
-        """Cheap polling payload for the Streamlit transcript fragment."""
+        """Cheap polling payload for incremental transcript updates."""
         messages = get_or_404(lambda: service.store.list_messages(conversation_id))
         version = len(messages)
         if after:

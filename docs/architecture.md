@@ -1,6 +1,6 @@
 # Architecture
 
-DrugGPT is a **local-first, source-grounded medical education application**. Everything runs on your machine: the FastAPI backend, the Streamlit frontend, the Chroma vector index, and the SQLite store. An external language model (via OpenRouter) is used only to phrase responses; it never decides what the app is allowed to do.
+DrugGPT is a **local-first, source-grounded medical education application**. The backend, Chroma vector index, and SQLite store run on your machine; the frontend is a separate Next.js app (`Frontend/`) deployable to Vercel. An external language model (via OpenRouter) is used only to phrase responses; it never decides what the app is allowed to do.
 
 Two frameworks carry the whole system:
 
@@ -13,7 +13,7 @@ There is no separate hand-written orchestration layer — routing, RAG invocatio
 
 The system has four parts:
 
-1. **User interfaces** — Streamlit pages for patients, clinicians, and admins.
+1. **User interface** — a Next.js app with a patient chatbot and a drug-professional workspace (pro chat + request review console).
 2. **FastAPI boundary** — typed routes, validation, and `ChatResponse` models.
 3. **LangGraph conversation graph** — triage → context → one of six response paths.
 4. **Local stores** — SQLite for conversation data and ChromaDB for the searchable PDF index.
@@ -48,7 +48,7 @@ flowchart TD
     HA --> RES
     HR --> RES
     HC --> RES
-    RES --> UI[Streamlit renders answer,<br/>status, and source cards]
+    RES --> UI[Next.js UI renders answer,<br/>status, and source cards]
     API -.->|optional /messages/stream| ST[SSE token events<br/>then terminal ChatResponse]
     ST --> UI
 
@@ -65,7 +65,7 @@ flowchart TD
 
 ## How a message flows through the system
 
-1. **Patient sends a message** — Streamlit posts to `POST /conversations/{id}/messages`.
+1. **User sends a message** — the Next.js UI posts to `POST /conversations/{id}/messages`.
 2. **FastAPI validates and loads** — the route checks the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
 3. **LangGraph runs `triage`** — deterministic regex rules classify the message as emergency, out-of-scope, needs-more-information, general, symptom, or one of four personal-decision types.
 4. **`load_context` adds memory** — approved patient facts, the latest summary, and the last eight messages are added to the graph state.
@@ -75,7 +75,7 @@ flowchart TD
    - **General / symptom** → the `answer` node searches Chroma in cosine space. Chunks whose clamped cosine similarity is at or above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history. `POST /conversations/{id}/messages/stream` streams this answer as SSE tokens before returning the same stored `ChatResponse`.
    - **Personal health decision** → the `clinician_review` node drafts internal guidance, saves a review row, and pauses with `interrupt()`.
 6. **A clinician resolves the hold** — `POST /reviews/{id}/decision` approves or rejects the draft and resumes the graph with `Command(resume=...)` keyed by the stored `graph_thread_id`. `POST /conversations/{id}/clinician-reply` instead records a free-text clinician reply and closes the review as approved.
-7. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. Streamlit renders the right caption for each mode.
+7. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. The Next.js UI renders the right card/badge for each mode.
 
 ## Triage categories
 
@@ -122,13 +122,11 @@ DrugGPT/
 │   │   ├── indexing.py         # Chroma index rebuild from data/raw
 │   │   ├── retrieval.py        # Chroma retrieval + provenance
 │   │   └── service.py          # LangGraph state graph + prompts
-│   └── ui/
-│       ├── Patient_Chat.py     # patient chat page
-│       ├── api_client.py       # testable HTTP client
-│       └── pages/              # Streamlit multipage UI
-│           ├── 1_Patient_Profile.py
-│           ├── 2_Clinician_Chat.py
-│           └── 3_Admin.py
+├── Frontend/                   # Next.js UI (separate npm project, Vercel-ready)
+│   └── src/
+│       ├── app/                # App Router pages and layout
+│       ├── components/         # role gate, chat, professional workspace, UI primitives
+│       └── lib/api/            # types, HTTP client, mock adapter (single backend seam)
 ├── tests/
 └── data/                       # raw PDFs, Chroma index, checkpoints, druggpt.db (ignored by Git)
 ```
@@ -142,7 +140,7 @@ DrugGPT/
 | `src.rag.guardrails` | Deterministic triage and the set of categories that require human review |
 | `src.rag.service` | LangGraph nodes, edges, prompts, and response mapping |
 | `src.rag.indexing` / `src.rag.retrieval` | PDF chunking and Chroma-backed evidence |
-| `src.ui` | Streamlit application and testable HTTP client |
+| `Frontend/` | Next.js UI (role gate, patient chat, professional review console, typed API client) |
 | `src.core.runtime` | TensorFlow-disable shims and warning filters applied before heavy imports |
 
 ## Clinician review gate
@@ -178,13 +176,13 @@ mkdir -p data/raw
 # 3. Terminal 1: FastAPI backend (:8000) with auto-reload
 uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
-# 4. Terminal 2: Streamlit frontend (:8501)
-streamlit run src/ui/Patient_Chat.py --server.port 8501
+# 4. Terminal 2: Next.js frontend (:3000)
+cd Frontend && npm install && npm run dev
 ```
 
 `uvicorn src.main:app` uses the module-level ``app`` built by ``src/main.py``; runtime shims and logging are configured at import time before the heavy service/route imports, so request logs appear immediately in that terminal. ``src/main.py`` is also the single wiring point: add a new view module to its ``ROUTER_FACTORIES`` tuple to expose it.
 
-The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:8501`. Use the Streamlit sidebar **Rebuild local medical source index** after adding PDFs.
+The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:3000`. Rebuild the source index with `POST /vector-db/rebuild` after adding PDFs. Set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` in `Frontend/.env.local` to connect the UI to the backend; without it, the UI runs on seeded mock data.
 
 ## Safety and scope
 

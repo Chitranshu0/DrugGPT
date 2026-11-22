@@ -1,7 +1,7 @@
 """Environment shims applied *before* heavy ML imports.
 
-Import :func:`configure_runtime` first in every entrypoint (the uvicorn target
-and each Streamlit page) so that TensorFlow is never pulled in through
+Import :func:`configure_runtime` first in the backend entrypoint (the uvicorn
+target) so that TensorFlow is never pulled in through
 ``transformers``/``datasets``. TensorFlow is unused and adds startup time plus
 oneDNN/tf_keras warnings on the PyTorch embedding path.
 """

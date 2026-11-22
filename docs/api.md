@@ -37,7 +37,7 @@ Returns API status.
 
 ## `GET /v1/models`
 
-Minimal OpenAI-compatible discovery shim for external probes (not used by the Streamlit client).
+Minimal OpenAI-compatible discovery shim for external probes (not used by the frontend).
 
 ```json
 {"object": "list", "data": [{"id": "nvidia/nemotron-3.5-lightning:free", "object": "model", "owned_by": "openrouter"}]}
@@ -113,7 +113,7 @@ Create a conversation.
 List messages in a conversation.
 
 ### `GET /conversations/{conversation_id}/messages/since`
-Cheap polling payload used by the Streamlit transcript fragment. With `after=<message_id>`, returns only messages added after that id plus the current `version` (total message count). Omitting `after` returns the full history.
+Cheap polling payload for incremental transcript updates. With `after=<message_id>`, returns only messages added after that id plus the current `version` (total message count). Omitting `after` returns the full history.
 
 ```json
 {"messages": [], "version": 2}

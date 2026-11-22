@@ -23,12 +23,14 @@ Put PDFs you are licensed to index in `data/raw`, then start the two services in
 # Terminal 1: FastAPI backend (:8000) with auto-reload
 uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
-# Terminal 2: Streamlit frontend (:8501)
-streamlit run src/ui/Patient_Chat.py --server.port 8501
+# Terminal 2: Next.js frontend (:3000) — see Frontend/README.md
+cd Frontend
+npm install
+npm run dev
 ```
 
-The Streamlit entrypoints add the repository root to `sys.path`, so direct
-`streamlit run` also works without an editable install.
+The frontend uses seeded mock data until `NEXT_PUBLIC_API_BASE_URL` is set in
+`Frontend/.env.local`.
 
 Open:
 
@@ -40,7 +42,7 @@ Open:
 | `http://127.0.0.1:8000/health` | liveness probe |
 | `http://127.0.0.1:8000/v1/models` | OpenAI-compatible model discovery shim (for external probes) |
 | `http://127.0.0.1:8000/docs` | interactive Swagger UI, including the streaming chat endpoint |
-| `http://127.0.0.1:8501` | Streamlit chat UI |
+| `http://127.0.0.1:3000` | Next.js chat UI |
 
 Every request is logged to the backend terminal with a timestamp, level, and logger name
 (`druggpt.api` / `druggpt.rag.service`), so you can follow triage, retrieval, LLM calls, and
@@ -51,7 +53,7 @@ clinician reviews as they happen.
 | Command | What it does |
 |---------|--------------|
 | `uvicorn src.main:app --reload` | FastAPI backend only (:8000) |
-| `streamlit run src/ui/Patient_Chat.py --server.port 8501` | Streamlit frontend only (:8501) |
+| `cd Frontend && npm run dev` | Next.js frontend only (:3000) |
 
 ## Configuration
 
@@ -101,7 +103,7 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 | `DRUGGPT_DATA_DIR` | `data` | directory holding `raw/`, `chroma/`, `checkpoints/`, `druggpt.db` |
 | `DRUGGPT_API_HOST` | `127.0.0.1` | API bind host |
 | `DRUGGPT_API_PORT` | `8000` | API bind port |
-| `DRUGGPT_UI_PORT` | `8501` | Streamlit UI port |
+| `DRUGGPT_UI_PORT` | `8501` | Legacy setting, unused (frontend is on :3000) |
 | `DRUGGPT_MODEL` | `nvidia/nemotron-3.5-lightning:free` | OpenRouter model name |
 | `DRUGGPT_RELEVANCE_THRESHOLD` | `0.35` | minimum **cosine similarity** for grounded answers (`[0, 1]`) |
 | `DRUGGPT_RETRIEVAL_K` | `5` | number of chunks retrieved (`>= 1`) |
@@ -113,7 +115,7 @@ LANGCHAIN_PROJECT=DrugGPT-chatbot
 
 `OPENROUTER_API_KEY` is required for generated answers. `DRUGGPT_DATA_DIR` is resolved relative to the repository root. If the index is unavailable, confirm PDFs are in `data/raw` and rebuild it. If chat generation fails, verify `OPENROUTER_API_KEY` and network access to OpenRouter.
 
-**After upgrading an existing installation, always rebuild the index once** (for example with the **Rebuild local medical source index** button in the Admin page). Older indexes use L2 distance and absolute source paths; the app marks them as needing a rebuild and answers without citations until they are recreated in cosine space. See [`rag-and-data.md`](rag-and-data.md) for score semantics.
+**After upgrading an existing installation, always rebuild the index once** (with `POST /vector-db/rebuild`). Older indexes use L2 distance and absolute source paths; the app marks them as needing a rebuild and answers without citations until they are recreated in cosine space. See [`rag-and-data.md`](rag-and-data.md) for score semantics.
 
 `Settings.validate()` refuses a non-loopback `DRUGGPT_API_HOST` unless `DRUGGPT_ALLOW_REMOTE=1`. `LocalStore` has no authentication, so keep the service bound to `127.0.0.1` unless you are deliberately demoing on a trusted local network.
 
