@@ -1,199 +1,78 @@
 # Architecture
 
-DrugGPT is a **local-first, source-grounded medical education application**. The backend, Chroma vector index, and SQLite store run on your machine; the frontend is a separate Next.js app (`Frontend/`) deployable to Vercel. An external language model (via OpenRouter) is used only to phrase responses; it never decides what the app is allowed to do.
+DrugGPT is a **local-first, source-grounded medical education app**. LangGraph owns the conversation; FastAPI owns the HTTP boundary. OpenRouter only phrases answers — it never decides what the app may do.
 
-Two frameworks carry the whole system:
+## System at a glance
 
-- **LangGraph** owns the conversation. Every message runs through a state graph that decides *how* to respond.
-- **FastAPI** owns the HTTP boundary. It validates requests, starts the graph, and returns typed responses.
+```mermaid
+flowchart LR
+    U[User] --> FE[Next.js UI<br/>patient chat + review console]
+    FE --> API[FastAPI<br/>validate + typed response]
+    API --> G[LangGraph<br/>conversation graph]
+    G <--> DB[(SQLite<br/>patients, chats, reviews)]
+    G <--> V[(Chroma<br/>PDF index)]
+    G -. phrasing only .-> LLM[OpenRouter]
+    G --> RES[ChatResponse]
+```
 
-There is no separate hand-written orchestration layer — routing, RAG invocation, clarification, and human handoff all live in the LangGraph graph, and all external access goes through FastAPI.
+- Two apps: FastAPI backend (:8000) and Next.js frontend in `Frontend/` (:3000).
+- Data and the vector index stay on the local machine.
+- `src/` is the package root (`src.*`).
 
-## What the architecture looks like
-
-The system has four parts:
-
-1. **User interface** — a Next.js app with a patient chatbot and a drug-professional workspace (pro chat + request review console).
-2. **FastAPI boundary** — typed routes, validation, and `ChatResponse` models.
-3. **LangGraph conversation graph** — triage → context → one of six response paths.
-4. **Local stores** — SQLite for conversation data and ChromaDB for the searchable PDF index.
+## Message flow
 
 ```mermaid
 flowchart TD
-    U[User asks a question] --> API[FastAPI receives and validates]
-    API --> T[LangGraph: triage node<br/>deterministic guardrails]
-
-    T -->|emergency| E[Emergency guidance]
-    T -->|out of scope| O[Scope notice]
-    T -->|unclear question| C[LangGraph: load_context node]
-    T -->|educational / symptom question| C
-    T -->|personal health decision| C
-
-    C -->|unclear| Q[clarify node<br/>fixed reviewed question, no LLM]
-    C -->|educational / symptom| R{Chroma RAG has<br/>relevant chunks?}
-    R -->|yes| A[answer node<br/>source-grounded + citations]
-    R -->|no| G[answer node<br/>general education]
-    C -->|personal decision| H[clinician_review node<br/>draft + interrupt]
-
-    H --> HP[Human clinician reviews<br/>via FastAPI]
-    HP -->|approved| HA[Clinician-approved guidance]
-    HP -->|rejected| HR[Safety refusal]
-    HP -->|free-text reply| HC[Clinician reply]
-
-    E --> RES[FastAPI returns ChatResponse<br/>answer + status + sources]
-    O --> RES
-    Q --> RES
-    A --> RES
-    G --> RES
-    HA --> RES
-    HR --> RES
-    HC --> RES
-    RES --> UI[Next.js UI renders answer,<br/>status, and source cards]
-    API -.->|optional /messages/stream| ST[SSE token events<br/>then terminal ChatResponse]
-    ST --> UI
-
-    style E fill:#ffcccb,stroke:#333
-    style HR fill:#ffcccb,stroke:#333
-    style Q fill:#fff9c4,stroke:#333
-    style H fill:#fff9c4,stroke:#333
-    style HP fill:#fff9c4,stroke:#333
-    style A fill:#e1f5e1,stroke:#333
-    style G fill:#e1f5e1,stroke:#333
+    M[Message] --> T[triage<br/>deterministic rules]
+    T --> C[load_context<br/>memory + history]
+    T --> E[emergency guidance]
+    T --> O[scope notice]
+    E --> R[ChatResponse]
+    O --> R
+    C --> Q{vague?}
+    Q -->|yes| CL[clarify<br/>fixed question, no LLM]
+    Q -->|no| D{personal decision?}
+    D -->|yes| HR[clinician review<br/>pause]
+    D -->|no| A{relevant source?}
+    A -->|yes| SA[answer + citations]
+    A -->|no| GA[general education]
+    CL --> R
+    HR --> R
+    SA --> R
+    GA --> R
+    R --> UI[UI renders answer,<br/>status, sources]
 ```
 
-**How to read the diagram:** red nodes are immediate safety outcomes, yellow nodes are "wait for a human or for more detail," and green nodes are educational answers. The important point is that **RAG is invoked only on the educational/symptom path**. Clarifications, emergencies, scope notices, and personal health decisions never trigger retrieval.
+- RAG runs **only** on the educational/symptom path.
+- Clarifications, emergencies, scope notices, and personal decisions never retrieve.
+- Emergency classification always wins.
+- `POST .../messages/stream` adds SSE tokens; guardrails and review are unchanged.
 
-## How a message flows through the system
+## Triage routes
 
-1. **User sends a message** — the Next.js UI posts to `POST /conversations/{id}/messages`.
-2. **FastAPI validates and loads** — the route checks the request, loads the conversation from SQLite, and calls `MedicalRAGService.send_message`.
-3. **LangGraph runs `triage`** — deterministic regex rules classify the message as emergency, out-of-scope, needs-more-information, general, symptom, or one of four personal-decision types.
-4. **`load_context` adds memory** — approved patient facts, the latest summary, and conversation history are added to the graph state. History is read primarily from the checkpointed `messages` channel, with the last eight `LocalStore` messages as a fallback. Both the grounded and general prompts receive it.
-
-   **Checkpoint threads:** ordinary turns share one SQLite thread, `conversation:{id}`, so each turn restores the previous turns' state from `data/checkpoints/langgraph.db`; a `reset_turn` node clears per-reply fields and `remember_user` / `store_answer` append to `messages`. Personal-decision requests instead use `conversation:{id}:review:{message_id}` so a paused `interrupt()` never blocks later turns on the conversation thread. The streaming endpoint restores and writes back the same conversation thread.
-5. **The graph picks one response path**:
-   - **Emergency / out-of-scope** → immediate fixed guidance.
-   - **Unclear** → the `clarify` node returns a fixed, reviewed follow-up question with no LLM call (opt in with `DRUGGPT_LLM_CLARIFY=1` for a prompt-generated one); no retrieval, no medical advice.
-   - **General / symptom** → the `answer` node searches Chroma in cosine space. Chunks whose clamped cosine similarity is at or above `DRUGGPT_RELEVANCE_THRESHOLD` produce a source-grounded answer with citations; otherwise the same node produces a general-education answer using a system prompt and conversation history. `POST /conversations/{id}/messages/stream` streams this answer as SSE tokens before returning the same stored `ChatResponse`.
-   - **Personal health decision** → the `clinician_review` node drafts internal guidance, saves a review row, and pauses with `interrupt()`.
-6. **A clinician resolves the hold** — `POST /reviews/{id}/decision` approves or rejects the draft and resumes the graph with `Command(resume=...)` keyed by the stored `graph_thread_id`. `POST /conversations/{id}/clinician-reply` instead records a free-text clinician reply and closes the review as approved.
-7. **FastAPI returns one `ChatResponse`** — answer, status, `answer_mode`, sources, and tool activity. The Next.js UI renders the right card/badge for each mode.
-
-## Triage categories
-
-| Category | Meaning | Graph path |
-|----------|---------|------------|
-| `emergency` | Chest pain, trouble breathing, overdose, self-harm, etc. | Immediate emergency guidance |
-| `out_of_scope` | Non-medical requests (code, weather, sports, etc.) | Scope notice |
-| `needs_more_information` | Very short or generic message ("help", "hi there") | `clarify` node |
-| `general` | Medical science / drug-study education | RAG → `answer` |
-| `symptom` | Symptom-related education | RAG → `answer` |
-| `medication_review` | "What medicine/dose should I take?" | `clinician_review` |
-| `test_decision` | "What test/scan should I get?" | `clinician_review` |
-| `treatment_decision` | "What treatment should I start?" | `clinician_review` |
-| `report_interpretation` | "What does my test report mean?" | `clinician_review` |
-
-Emergency classification always wins over the other rules.
-
-## Project layout
-
-The project uses a flat `src` layout (the package root is `src`, imported as `src.*`):
-
-```text
-DrugGPT/
-├── .env                        # runtime secrets (untracked)
-├── .env.example                # template for .env
-├── pyproject.toml
-├── src/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI composition root (`uvicorn src.main:app`)
-│   ├── api/
-│   │   ├── metadata.py         # OpenAPI version, tags, description
-│   │   ├── errors.py           # global JSON-500 exception handler
-│   │   ├── deps.py             # shared `get_or_404` helper
-│   │   └── routes/             # one `make_router(service)` view module per domain
-│   │       ├── meta.py, index.py, patients.py
-│   │       └── chat.py, reviews.py, clinician.py
-│   ├── core/
-│   │   ├── config.py           # Settings (env/.env, validation, directories)
-│   │   ├── runtime.py          # no-TensorFlow shims (import first in entrypoints)
-│   │   ├── models.py           # typed request/response/domain models
-│   │   └── persistence.py      # SQLite store (patients, conversations, reviews)
-│   ├── rag/
-│   │   ├── guardrails.py       # triage rules + clinician-review categories
-│   │   ├── indexing.py         # Chroma index rebuild from data/raw
-│   │   ├── retrieval.py        # Chroma retrieval + provenance
-│   │   └── service.py          # LangGraph state graph + prompts
-├── Frontend/                   # Next.js UI (separate npm project, Vercel-ready)
-│   └── src/
-│       ├── app/                # App Router pages and layout
-│       ├── components/         # role gate, chat, professional workspace, UI primitives
-│       └── lib/api/            # types, HTTP client, mock adapter (single backend seam)
-├── tests/
-└── data/                       # raw PDFs, Chroma index, checkpoints, druggpt.db (ignored by Git)
-```
-
-## Components
-
-| Module | Responsibility |
-|--------|----------------|
-| `src.api` | FastAPI backend and HTTP boundary |
-| `src.core` | Settings and typed shared API/domain models |
-| `src.rag.guardrails` | Deterministic triage and the set of categories that require human review |
-| `src.rag.service` | LangGraph nodes, edges, prompts, and response mapping |
-| `src.rag.indexing` / `src.rag.retrieval` | PDF chunking and Chroma-backed evidence |
-| `Frontend/` | Next.js UI (role gate, patient chat, professional review console, typed API client) |
-| `src.core.runtime` | TensorFlow-disable shims and warning filters applied before heavy imports |
+- `emergency` → immediate guidance · `out_of_scope` → scope notice
+- `needs_more_information` → clarify (fixed, reviewed question)
+- `general`, `symptom` → RAG answer or general education
+- `medication_review`, `test_decision`, `treatment_decision`, `report_interpretation` → clinician review
 
 ## Clinician review gate
 
-| Mechanism | Trigger | Endpoint | Purpose |
-|-----------|---------|----------|---------|
-| **Clinician review gate** | Triage is medication, test, treatment, or report interpretation | `POST /reviews/{id}/decision` | Approve or reject AI-drafted guidance before the patient sees it |
-| **Free-text clinician reply** | An open review exists for the conversation | `POST /conversations/{id}/clinician-reply` | Record a clinician message and close the review as approved |
-
-The decision endpoint resumes the paused graph through the stored `graph_thread_id`; the free-text reply stores the clinician message directly. Emergency messages are never routed through the review gate.
-
-## Persistence
-
-`data/raw` holds local licensed PDFs; `data/chroma` holds the disposable Chroma index; `data/checkpoints` holds LangGraph conversation checkpoints; `data/druggpt.db` is the SQLite store for patients, conversations, and reviews. None are committed to Git.
-
-## Running the project
-
-See [`setup.md`](setup.md) for full installation instructions. The short version is:
-
-```bash
-# 1. Create environment and install
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
-pip install -e '.[dev]'
-
-# 2. Configure
-cp .env.example .env
-# edit .env and set OPENROUTER_API_KEY
-mkdir -p data/raw
-# copy licensed medical PDFs into data/raw/
-
-# 3. Terminal 1: FastAPI backend (:8000) with auto-reload
-uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
-
-# 4. Terminal 2: Next.js frontend (:3000)
-cd Frontend && npm install && npm run dev
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant G as LangGraph
+    participant S as SQLite
+    participant C as Clinician
+    U->>G: personal decision question
+    G->>S: save review + graph_thread_id
+    G->>G: interrupt() — pause
+    C->>G: POST /reviews/{id}/decision<br/>or clinician-reply
+    G->>S: record decision
+    G->>U: approved guidance / refusal / reply
 ```
 
-`uvicorn src.main:app` uses the module-level ``app`` built by ``src/main.py``; runtime shims and logging are configured at import time before the heavy service/route imports, so request logs appear immediately in that terminal. ``src/main.py`` is also the single wiring point: add a new view module to its ``ROUTER_FACTORIES`` tuple to expose it.
+- Personal decisions pause before any guidance is shown.
+- Reviews use a separate thread so a pause does not block later turns.
+- Rejected reviews become a safety refusal; a free-text reply closes the review as approved.
 
-The API is available at `http://127.0.0.1:8000` (Swagger UI at `/docs`, ReDoc at `/redoc`); the UI at `:3000`. Rebuild the source index with `POST /vector-db/rebuild` after adding PDFs. Set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` in `Frontend/.env.local` to connect the UI to the backend; without it, the UI runs on seeded mock data.
-
-## Safety and scope
-
-DrugGPT is an educational assistant, not a clinician. It explains medical topics conversationally, asks for clarification when a question is vague, and cites local sources when they support an answer. It **does not** diagnose, prescribe, choose a test, recommend a treatment, or interpret a personal test report — those requests are paused for a human clinician. When no indexed source sufficiently supports a question, it gives general educational information rather than inventing an answer. Emergencies get immediate guidance, never a review queue. See [`safety-and-scope.md`](safety-and-scope.md).
-
-## Related docs
-
-- [`setup.md`](setup.md) — installation, configuration, and startup commands
-- [`api.md`](api.md) — endpoint reference and response schemas
-- [`rag-and-data.md`](rag-and-data.md) — indexing workflow, retrieval, and citation rules
-- [`safety-and-scope.md`](safety-and-scope.md) — guardrails, scope, and verification policy
-- [`adr/0001-local-chroma-source-grounded-rag.md`](adr/0001-local-chroma-source-grounded-rag.md) — original ADR for local ChromaDB
+See [`rag-and-data.md`](rag-and-data.md), [`safety-and-scope.md`](safety-and-scope.md), [`api.md`](api.md).

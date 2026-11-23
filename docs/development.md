@@ -1,117 +1,32 @@
-# Development guide
+# Development
 
-## Install development tools
-
-```bash
-pip install -e '.[dev]'
+```mermaid
+flowchart TD
+    A[Change code] --> B[pytest + ruff check .]
+    B -->|green| C[DeepEval: run suite]
+    C -->|metric fails| D[Fix the app —<br/>prompt, retrieval, guardrail, tool wiring]
+    D --> C
+    C -->|green| E[Done]
+    B -->|red| A
 ```
 
-## Test and lint
-
-```bash
-pytest
-ruff check .
-```
-
-Tests use fake retrievers, an in-memory store, and an LLM stub, so they do not need an OpenRouter key, a network connection, or the private PDF corpus. Add behavioral tests alongside changes to guardrails, response schemas, indexing, retrieval scoring, and UI client calls. Keep runtime data out of commits and use typed models at application boundaries.
-
-Useful targeted suites:
-
-```bash
-pytest tests/test_retrieval.py tests/test_indexing.py   # scoring, schema detection, index filters
-pytest tests/test_service.py tests/test_api.py          # streaming, guardrails, clinician review
-```
-
-`src.core.runtime.configure_runtime()` is called first in the backend entrypoint (uvicorn target). It disables TensorFlow before heavy imports and suppresses the Python-EOL warning from `google.api_core`. Add the same call to any new entrypoint.
-
-## DeepEval build loop
-
-`tests/evals/` holds the ground-truth suite used during development, not just a final gate:
-
-```bash
-# On Windows, rich's Unicode progress output needs UTF-8:
-$env:PYTHONIOENCODING = "utf-8"
-# The free OpenRouter tier is slow: allow long judge calls.
-$env:DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE = "900"
-deepeval test run tests/evals/test_druggpt.py   # run the eval suite
-python -m tests.evals.generate_goldens          # synthesize RAG goldens from data/raw/*.pdf
-```
-
-By default both the app LLM and the judge use the OpenRouter key with the free
-`DRUGGPT_EVAL_MODEL` (default `inclusionai/ling-3.2-flash:free`). If a second key is
-configured as `OPENROUTER_FALLBACK_API_KEY`, it is attached as a LangChain
-fallback and is only used when the primary call fails (429, 5xx, timeout) or
-returns empty content — the primary key is never overwritten. Override the
-fallback model with `DRUGGPT_EVAL_FALLBACK_MODEL`. The OpenRouter free tier has
-a daily request cap; the fallback key keeps the eval loop running past it.
-
-The suite injects a `CallbackHandler` from DeepEval's LangGraph integration (via
-`MedicalRAGService.send_message(..., callbacks=...)`), so every graph/node/LLM/tool span is
-evaluable without hand-rolled `@observe`. `tests/evals/judge.py` adapts the app's OpenRouter
-model to `DeepEvalBaseLLM`; no OpenAI key or Confident AI account is needed. Goldens live in
-`tests/evals/goldens.json`: fixed safety routes are asserted deterministically, RAG answers are
-scored by relevancy, faithfulness, a no-diagnosis GEval, and trajectory metrics. Generated goldens
-are written to gitignored `data/evals/` before being curated into that file.
-
-When a metric fails, fix the app (prompt, retrieval scoping, guardrail, tool wiring) — never the
-metric, threshold, or golden — then re-run the suite to confirm improvement without regressions.
-
-## Project layout
-
-```text
-src/             # importable as src.* (package root)
-tests/           # pytest suite
-data/            # runtime data (ignored by Git)
-docs/            # this documentation
-src/main.py      # FastAPI composition root (`uvicorn src.main:app`)
-src/api/
-  metadata.py, errors.py, deps.py
-  routes/                # one make_router(service) view module per domain
-    meta.py, index.py, patients.py, chat.py, reviews.py, clinician.py
-pyproject.toml   # packaging, pytest, ruff, coverage configuration
-.env             # runtime secrets (untracked)
-Frontend/                # separate npm project: Next.js UI, Vercel-ready
-  src/app/               # layout + entry page (role gate)
-  src/components/        # chat, professional workspace, UI primitives
-  src/lib/api/           # types, HTTP client (SSE), mock adapter
-```
-
-## Logging
-
-`src/core/config.py` exposes `setup_logging()`, which configures one consistent format:
-
-```text
-2026-11-15 19:57:47 | INFO     | druggpt.rag.service | Triage: general -> local evidence lookup, then an educational answer
-```
-
-`src/main.py` calls it at import time so `uvicorn src.main:app --reload` logs immediately.
-
-### Log message convention
-
-Write messages as **what happened + identifiers + outcome**, in plain language that explains
-the flow to a developer reading the console after the fact:
-
-- Good: `Conversation <id> created for patient <id> — awaiting messages`
-- Avoid: terse codes or raw state dumps like `chars=2`, `mode=clarification`, or `Triage result: general`.
-- Errors go in the headline with the exception type and message — the global handler in
-  `src/api/errors.py` logs `Request failed: <METHOD> <path> raised <Type>: <message>` and keeps the
-  full traceback via `logger.exception`.
-
-`setup_logging()` demotes chatty third-party libraries (`httpx`, `httpcore`, `chromadb`,
-`sentence_transformers`, `posthog`) to `WARNING` so their per-request HTTP/telemetry chatter does not
-bury the application's own narrative. `uvicorn.access` is left at its default (INFO) so request logs
-remain visible; to quiet it, set its level to `WARNING` in `setup_logging()`.
-
-## Retrieval and streaming internals
-
-- `src/rag/retrieval.py` caches the embedder, Chroma client and store with `functools.lru_cache`. Call `invalidate_caches()` after any index rebuild; otherwise searches keep hitting the deleted collection. The embedding model is intentionally kept warm.
-- Scores are `clamp(1 - cosine_distance, 0, 1)`. Never switch back to `similarity_search_with_relevance_scores` without fixing score semantics first — it produced negative values and a warning that dumped entire documents into the log.
-- `MedicalRAGService._prepare_general_answer()` is shared by the graph and the streaming endpoint. Keep guardrail branches and the `interrupt()` review gate untouched when changing the answer path.
-- `GET /v1/models` is a compatibility shim for external OpenAI-compatible probes; nothing in this repo calls it.
-
-## Conventions
-
-- Imports use the `src.*` scheme (e.g. `from src.core.config import Settings`).
-- `Settings` values are read at instantiation time via `default_factory`, so tests can override `os.environ` after import.
+- Tests are offline: fake retrievers, in-memory store, LLM stub — no key, network, or PDFs needed.
+- Add behavioral tests for guardrails, response schemas, indexing, retrieval scoring, and UI client calls.
 - Never commit `.env` or anything under `data/`.
-- Keep `ruff check .` and `pytest` green on every change.
+- Imports use `src.*`; call `src.core.runtime.configure_runtime()` first in any new entrypoint.
+- Logs read "what happened + ids + outcome" in plain language.
+
+## DeepEval loop
+
+```bash
+$env:PYTHONIOENCODING = "utf-8"
+$env:DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE = "900"
+deepeval test run tests/evals/test_druggpt.py
+```
+
+- Goldens: `tests/evals/goldens.json`; generated goldens go to gitignored `data/evals/` first.
+- Judge uses `OPENROUTER_API_KEY`; `OPENROUTER_FALLBACK_API_KEY` is a fallback only. Never overwrite the primary key.
+- Fix the app, never the metric, threshold, or golden — then re-run.
+- Internals: caches require `invalidate_caches()` after rebuild; scores are `clamp(1 - cosine_distance, 0, 1)`; `/v1/models` is a probe shim.
+
+More project context: [`AGENTS.md`](AGENTS.md) · [`SKILLS.md`](SKILLS.md).

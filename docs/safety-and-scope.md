@@ -1,41 +1,39 @@
 # Safety and scope
 
-DrugGPT is a **medical education assistant** for students and the general public. It explains health topics in plain language, but it is not a clinician and must not be used for real clinical decisions.
+DrugGPT is a **medical education assistant**, not a clinician.
 
-## What DrugGPT does
+## What happens to a message
 
-- Holds a conversation: when a message is too vague, it returns one fixed, reviewed clarifying question instead of guessing (no LLM call by default).
-- Searches local, licensed medical PDFs and prefers source-grounded answers with page citations.
-- Falls back to clearly labeled general educational information when no source is relevant enough.
-- Declines unrelated questions and applies deterministic guardrails (`triage_query`) to every message.
-- Pauses personal clinical decisions for a human clinician (see below).
+```mermaid
+flowchart TD
+    M[Message] --> E{emergency?}
+    E -->|yes| EG[Immediate guidance<br/>call local emergency services]
+    E -->|no| O{out of scope?}
+    O -->|yes| ON[Scope notice]
+    O -->|no| V{vague?}
+    V -->|yes| CL[One fixed clarifying question<br/>no LLM]
+    V -->|no| P{personal decision?}
+    P -->|yes| HR[Hold for clinician]
+    P -->|no| A[Educational answer<br/>sources or general info]
+```
 
-## What DrugGPT does NOT do
+- Emergency signals (chest pain, breathing trouble, overdose, self-harm) are checked first and always win.
+- Emergencies never enter a review queue.
+- Vague messages get a reviewed, fixed question — no guessing.
 
-- It is **not** a diagnostic, prescribing, testing, or emergency-care service.
-- It does not give individual doses or personal medical advice.
-- It does not replace qualified healthcare professionals.
-- It does not interpret a personal test report or decide what test or treatment someone should get.
+## In and out of scope
 
-## Human-in-the-loop triggers
+- **Does:** explain medical topics, cite local PDFs, label general information, ask for clarification, hold personal decisions.
+- **Does not:** diagnose, prescribe, choose a test or treatment, interpret a personal report, give individual doses, or replace a professional.
 
-A request is held for clinician review when it asks for a **personal clinical decision**, including:
+## Clinician hold
 
-- **Medicine** — which drug or dose a person should take, or whether to start/stop/change one.
-- **Testing** — which test or scan a person should get.
-- **Treatment** — which treatment or therapy a person should start.
-- **Test report** — what a personal lab result, scan, or report means.
+- Triggers: **medicine**, **testing**, **treatment**, **test report**.
+- The AI draft stays internal until a clinician approves, rejects, or writes a free-text reply.
+- Rejected reviews become a safety refusal.
 
-The assistant drafts internal guidance, saves it as a review, and pauses with a LangGraph `interrupt`. Nothing is shown to the user until a clinician approves it via `POST /reviews/{review_id}/decision` or writes a free-text reply via `POST /conversations/{id}/clinician-reply`. Rejected reviews become a safety refusal.
+## Local only
 
-## Emergency handling
-
-Emergency signals (for example chest pain, difficulty breathing, overdose, or self-harm) are classified first and always win over other rules. DrugGPT returns immediate emergency guidance and directs the user to contact local emergency services or the nearest emergency department. Emergency messages are **never** placed in a review queue.
-
-## Local-only guarantee
-
-`LocalStore` has **no authentication** and is for local demos only. `Settings.validate()` refuses to bind the API to a non-loopback host unless `DRUGGPT_ALLOW_REMOTE=1`, which is itself only for trusted local-network demos. Never enter real patient data, and never expose this service to the public internet.
-
-## Verification
-
-Verify research conclusions against the original PDFs and qualified professionals. If no indexed source sufficiently supports a question, DrugGPT provides general educational information rather than inventing an answer. Citations use repo-relative paths and one-based page numbers; confirm them against the original PDF.
+- No authentication. Bound to `127.0.0.1` unless `DRUGGPT_ALLOW_REMOTE=1` (trusted local demos only).
+- Never enter real patient data or expose the service publicly.
+- Verify conclusions against the original PDFs; citations use repo-relative paths and one-based pages.

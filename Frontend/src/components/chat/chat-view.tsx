@@ -32,6 +32,7 @@ export function ChatView({ variant = "patient" }: { variant?: "patient" | "profe
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -114,6 +115,45 @@ export function ChatView({ variant = "patient" }: { variant?: "patient" | "profe
     }
   };
 
+  const deleteConversation = async (id: string) => {
+    if (deletingId) return;
+    if (!window.confirm("Delete this chat? Its messages and any clinician review will be removed permanently.")) return;
+
+    const wasActive = id === activeId;
+    if (wasActive) {
+      abortRef.current?.abort();
+      setIsStreaming(false);
+      setStreamingText("");
+    }
+    setDeletingId(id);
+    setError(null);
+    try {
+      await api.deleteConversation(id);
+      const remaining = conversations.filter((item) => item.id !== id);
+      setConversations(remaining);
+      if (wasActive) {
+        const next = remaining[0];
+        if (next) {
+          setActiveId(next.id);
+          setMessages(await api.listMessages(next.id));
+        } else if (patientRef.current) {
+          // Keep the demo usable: always have one open chat after a deletion.
+          const fresh = await api.createConversation(patientRef.current.id, "New medical chat");
+          setConversations([fresh]);
+          setActiveId(fresh.id);
+          setMessages([]);
+        } else {
+          setActiveId(null);
+          setMessages([]);
+        }
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const sendMessage = async (text: string) => {
     if (!activeId || isStreaming) return;
     const conversationId = activeId;
@@ -166,6 +206,8 @@ export function ChatView({ variant = "patient" }: { variant?: "patient" | "profe
         activeId={activeId}
         onSelect={selectConversation}
         onNew={newConversation}
+        onDelete={deleteConversation}
+        deletingId={deletingId}
         loading={loading}
         variant={variant}
         className="hidden md:flex"
