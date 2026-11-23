@@ -1,103 +1,31 @@
-# 💊 DrugGPT
+# DrugGPT
 
-A simple Medical RAG (Retrieval-Augmented Generation) chatbot built using LangGraph, LangChain, Pinecone, Groq, FastAPI, and Streamlit.
+**Local-first, source-grounded medical education RAG app.** DrugGPT searches a local index of licensed medical PDFs, answers with page citations when evidence is found, and clearly labels general educational answers otherwise.
 
-This project started as a way to learn how modern AI assistants actually work behind the scenes instead of just calling an LLM API and hoping for the best.
+> **Not a clinical tool.** Built for students and researchers. It does not diagnose, prescribe, or handle emergencies.
 
-The idea is simple:
+**Stack:** Python 3.11+ · FastAPI · LangGraph · ChromaDB · SQLite · Next.js · Pytest · Ruff · DeepEval
 
-* Store medical books in a vector database
-* Retrieve relevant information based on the user's question
-* Feed that information to an LLM
-* Generate grounded answers instead of hallucinating
+## What it does
 
----
+- FastAPI backend with typed JSON chat responses and an SSE streaming endpoint
+- Next.js frontend (Vercel-ready) with patient chat and a drug-professional review console
+- Local ChromaDB index over licensed medical PDFs; every grounded answer shows source and page
+- LangGraph state graph routes each message: triage → context → answer / clarification / emergency / clinician review
+- Deterministic safety guardrails; personal clinical decisions pause for a human clinician
+- Educational-only scope — no diagnosis, prescribing, or emergency care
 
-## Why this project?
+## Architecture
 
-Most AI chatbots can answer medical questions, but they often rely only on their pre-trained knowledge.
-
-DrugGPT tries to answer questions using information retrieved from medical books before generating a response.
-
-This project is also a playground for learning:
-
-* RAG Pipelines
-* LangGraph
-* Agentic AI
-* Vector Databases
-* LLM Engineering
-* Open Source Collaboration
-
----
-
-## Current Features
-
-* PDF document ingestion
-* Medical book processing
-* Text cleaning and chunking
-* Server-side NVIDIA embeddings (Pinecone)
-* Pinecone document index with full-text search
-* Hybrid retrieval (semantic + keyword)
-* Reciprocal Rank Fusion (RRF)
-* Cross-encoder reranking
-* Medical-only scope guard
-* Grounded answers with book/page citations
-* LangGraph workflow
-* FastAPI backend
-* Streamlit frontend
-* LangSmith tracing
-* SQLite conversation persistence
-* Multiple chat threads with resume
-* Message history across restarts
-
----
-
-## Tech Stack
-
-### AI
-
-* LangChain
-* LangGraph
-* Groq (`openai/gpt-oss-120b` by default)
-* Pinecone integrated embedding: NVIDIA `llama-text-embed-v2` (1024 dim)
-* Pinecone reranker: `bge-reranker-v2-m3`
-
-### Backend
-
-* FastAPI
-
-### Frontend
-
-* Streamlit
-
-### Database
-
-* Pinecone Vector Database (medical books)
-* SQLite (conversation state and metadata)
-
-### Observability
-
-* LangSmith
-
-### Document Processing
-
-* PyMuPDF
-
----
-
-## Project Structure
-
-```bash
-DrugGPT/
-│
-├── backend/                     # FastAPI app + RAG pipeline
-│   ├── __init__.py
-│   ├── main.py                  # Creates the app and includes routers
-│   ├── api/
-│   │   ├── schemas.py           # Request/response models
-│   │   └── routes/
-│   │       ├── chat.py          # POST /chat
-<<<<<<< HEAD
+```mermaid
+flowchart LR
+    U[User] --> FE[Next.js UI<br/>patient chat + review console]
+    FE --> API[FastAPI<br/>validate + typed response]
+    API --> G[LangGraph<br/>conversation graph]
+    G <--> DB[(SQLite<br/>patients, chats, reviews)]
+    G <--> V[(Chroma<br/>PDF index)]
+    G -. phrasing only .-> LLM[OpenRouter]
+    G --> R[ChatResponse]
 │   │       └── health.py        # GET /health, /healthz
 │   ├── core/
 │   │   ├── config.py            # All environment settings
@@ -109,34 +37,10 @@ DrugGPT/
 │   │   └── graph.py             # LangGraph workflow
 │   └── ingestion/
 │       └── vector_db.py         # PDF -> Pinecone
-=======
-│   │       ├── threads.py       # Chat list, history, rename, delete
-│   │       └── health.py        # GET /health, /healthz
-│   ├── core/
-│   │   ├── config.py            # All environment settings
-│   │   ├── pinecone_client.py   # Index connection + schema check
-│   │   └── text.py              # PDF text cleanup
-│   ├── memory/
-│   │   ├── db.py                # SQLite setup and schema
-│   │   └── conversations.py     # Thread metadata CRUD
-│   ├── rag/
-│   │   ├── state.py             # State shared between graph nodes
-│   │   ├── scope.py             # Medical-only question classifier
-│   │   ├── retrieval.py         # Hybrid search + RRF + rerank
-│   │   ├── generation.py        # Context + history + LLM answer
-│   │   └── graph.py             # LangGraph workflow
-│   └── ingestion/
-│       └── vector_db.py         # PDF -> Pinecone documents
->>>>>>> fix/RAG
 │
 ├── frontend/
 │   └── streamlit_app.py         # Streamlit chat UI
 │
-<<<<<<< HEAD
-=======
-├── data/                        # SQLite files (created at runtime, gitignored)
-│
->>>>>>> fix/RAG
 ├── scripts/
 │   ├── ingest.py                # Run the PDF -> Pinecone ingestion
 │   └── smoke_test_llm.py        # Quick LLM connection check
@@ -157,7 +61,6 @@ DrugGPT/
 Streamlit UI
     |
     v
-<<<<<<< HEAD
 FastAPI /chat  (backend/api/routes/chat.py)
     |
     v
@@ -169,16 +72,6 @@ RAG step  (backend/rag/generation.py)
     v                  v
 Pinecone search    Groq LLM
 (backend/rag/retrieval.py)
-=======
-FastAPI /threads and /chat  (backend/api/routes/)
-    |
-    v
-LangGraph workflow  (backend/rag/graph.py)
-    |-----------------------------|
-    v                             v
-RAG step                    SQLite checkpoint
-(Pinecone + Groq)          (data/checkpoints.sqlite)
->>>>>>> fix/RAG
 ```
 
 ---
@@ -199,31 +92,44 @@ git clone https://github.com/your-username/DrugGPT.git
 cd DrugGPT
 ```
 
-Create a virtual environment:
+- **LangGraph** owns the conversation; **FastAPI** owns the HTTP boundary.
+- **OpenRouter** only phrases responses — it never decides what the app is allowed to do.
+- RAG runs only on the educational/symptom path; all other paths use dedicated nodes.
+
+Full flow, triage routes, and review sequence: [architecture doc](docs/architecture.md). Code lives in `src/` (imported as `src.*`); runtime data lives in untracked `data/`.
+
+## Engineering highlights
+
+- **State graph:** `triage → load_context → answer | clarify | emergency | scope | clinician_review`
+- **Deterministic triage:** regex guardrails run first; emergency always wins; clarifications are fixed and reviewed (no LLM call by default)
+- **Human-in-the-loop:** `interrupt()` pauses personal decisions; the review row is saved first and resumed with `Command(resume=...)` on a separate thread so later turns never block
+- **Cosine v2 index:** normalized embeddings, `hnsw:space=cosine`, `schema_version=2`; score = `clamp(1 - cosine_distance, 0, 1)`; cached embedder/client/store with `invalidate_caches()` on rebuild
+- **Memory:** one checkpoint thread per conversation (`conversation:{id}`) restores earlier turns from SQLite
+- **Streaming:** `/messages/stream` emits SSE tokens then the same stored `ChatResponse`
+- **Citations:** repo-relative source paths and one-based page numbers — no absolute local paths
+
+## Quick start
 
 ```bash
-conda create -n ai python=3.11
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1   # Windows
+# source .venv/bin/activate    # macOS/Linux
+pip install -e '.[dev]'
+cp .env.example .env            # set OPENROUTER_API_KEY
+mkdir -p data/raw               # add licensed medical PDFs here
 
-conda activate ai
+# Terminal 1: FastAPI backend (:8000)
+uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
+
+# Terminal 2: Next.js frontend (:3000)
+cd Frontend && npm install && npm run dev
 ```
 
-Install dependencies:
+- No `python main.py` — run uvicorn directly. Interactive API docs at `/docs`.
+- Frontend uses mock data until `NEXT_PUBLIC_API_BASE_URL` is set in `Frontend/.env.local`.
+- Upgrades: rebuild once with `POST /vector-db/rebuild`; old L2 indexes have no citations.
 
-```bash
-pip install -r requirements.txt
-```
-
-Create your `.env` file:
-
-```bash
-cp .env.example .env
-```
-
-Add your API keys.
-
----
-
-<<<<<<< HEAD
+Full configuration: [setup doc](docs/setup.md) and `.env.example`.
 ## Index the Medical Books (first time only)
 
 Put your PDF files in the `Medical Books/` folder, then run:
@@ -232,113 +138,43 @@ Put your PDF files in the `Medical Books/` folder, then run:
 python -m scripts.ingest
 ```
 
-=======
-## Index the Medical Books
-
-Put your PDF files in the folder set by `MEDICAL_BOOKS_DIR` (by default
-`Medical Books/`), then run:
-
-```bash
-# Check the PDFs and chunk counts without uploading
-python -m scripts.ingest --dry-run
-
-# Build the medical knowledge base
-python -m scripts.ingest --reset
-
-# Verify retrieval and the medical-only guard
-python -m test.vector_db_test
-```
-
-Pinecone embeds the text with NVIDIA `llama-text-embed-v2` on the server.
-No local model download is needed. See
-[docs/vector-db-guide.md](docs/vector-db-guide.md) for the full visual guide.
-
->>>>>>> fix/RAG
 ## Run the Backend
 
 ```bash
 uvicorn backend.main:app --reload
 ```
 
-## Run the Frontend
+## Testing & evaluation
 
 ```bash
-streamlit run frontend/streamlit_app.py
+pytest
+ruff check .
+deepeval test run tests/evals/test_druggpt.py
 ```
 
----
+- Tests are offline: fake retrievers, an in-memory store, and an LLM stub — no API key, network, or PDFs needed.
+- DeepEval uses fixed safety goldens plus RAG metrics (relevancy, faithfulness, no-diagnosis, trajectory).
+- `OPENROUTER_FALLBACK_API_KEY` is a fallback only; the primary key is never overwritten.
+- When a metric fails, fix the app — never the metric, threshold, or golden.
 
-## Roadmap
+Details: [development doc](docs/development.md).
 
-### Phase 1
+## Safety & scope
 
-* Basic Medical RAG
-* Pinecone Retrieval
-* FastAPI Backend
-* Streamlit UI
+- Declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent care.
+- No source above threshold → general education (HTTP 200), never an invented answer.
+- Local-only: no authentication, bound to `127.0.0.1` by default. Never enter real patient data.
 
-### Phase 2
+See [safety and scope](docs/safety-and-scope.md).
 
-* Streaming Responses
-* Human-in-the-loop approvals
-* Long-term memory
-* Conversation summarization
+## Documentation
 
-### Phase 3
+- [Architecture](docs/architecture.md) — system, message flow, clinician-review gate
+- [Setup](docs/setup.md) — installation and configuration
+- [API](docs/api.md) — endpoints and response modes
+- [RAG and data](docs/rag-and-data.md) — indexing and retrieval
+- [Safety and scope](docs/safety-and-scope.md) — guardrails and limits
+- [Development](docs/development.md) — tests, lint, DeepEval loop
+- [ADR 0001](docs/adr/0001-local-chroma-source-grounded-rag.md) — why local ChromaDB
 
-* Multi-Agent System
-* Drug Search Tool
-* Symptom Analysis Tool
-* Medical Calculator Tool
-* Web Search Integration
-
-### Phase 4
-
-* Multi-modal Inputs
-* Medical Reports
-* Image-based Diagnosis Research
-
----
-
-## Open Source Contributions
-
-This project is student-friendly.
-
-If you are:
-
-* Learning LangGraph
-* Learning RAG
-* Learning LLM Engineering
-* Looking for your first open-source contribution
-
-you are welcome here.
-
-Some beginner-friendly contribution ideas:
-
-* Improve UI
-* Better prompts
-* Add citations
-* Add memory
-* Improve retrieval quality
-* Add evaluation metrics
-* Improve documentation
-
-No contribution is too small.
-
----
-
-## Disclaimer
-
-This project is for educational and research purposes only.
-
-It is NOT a replacement for professional medical advice, diagnosis, or treatment.
-
-Always consult qualified healthcare professionals for medical decisions.
-
----
-
-## Built By Students, For Students
-
-If you're learning AI Engineering, Data Science, MLOps, or Generative AI and want to contribute, feel free to open an issue or submit a pull request.
-
-Let's build cool stuff and learn together 🚀
+Agent context: [`docs/AGENTS.md`](docs/AGENTS.md) · [`docs/SKILLS.md`](docs/SKILLS.md).

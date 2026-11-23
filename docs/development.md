@@ -1,24 +1,41 @@
-# Development Guide
+# Development
 
-## Ground rules
+```mermaid
+flowchart TD
+    A[Change code] --> B[pytest + ruff check .]
+    B -->|green| C[DeepEval: run suite]
+    C -->|metric fails| D[Fix the app —<br/>prompt, retrieval, guardrail, tool wiring]
+    D --> C
+    C -->|green| E[Done]
+    B -->|red| A
+```
 
-<<<<<<< HEAD
+- Tests are offline: fake retrievers, in-memory store, LLM stub — no key, network, or PDFs needed.
+- Add behavioral tests for guardrails, response schemas, indexing, retrieval scoring, and UI client calls.
+- Never commit `.env` or anything under `data/`.
+- Imports use `src.*`; call `src.core.runtime.configure_runtime()` first in any new entrypoint.
+- Logs read "what happened + ids + outcome" in plain language.
+
+## DeepEval loop
+
+```bash
+$env:PYTHONIOENCODING = "utf-8"
+$env:DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE = "900"
+deepeval test run tests/evals/test_druggpt.py
+```
+
+- Goldens: `tests/evals/goldens.json`; generated goldens go to gitignored `data/evals/` first.
+- Judge uses `OPENROUTER_API_KEY`; `OPENROUTER_FALLBACK_API_KEY` is a fallback only. Never overwrite the primary key.
+- Fix the app, never the metric, threshold, or golden — then re-run.
+- Internals: caches require `invalidate_caches()` after rebuild; scores are `clamp(1 - cosine_distance, 0, 1)`; `/v1/models` is a probe shim.
+
+More project context: [`AGENTS.md`](AGENTS.md) · [`SKILLS.md`](SKILLS.md).
 1. **One job per file.** Do not mix API, retrieval, and generation.
 2. **No work at import time.** Do not connect to Pinecone or download models
    when a file is imported.
 3. **Settings go in `backend/core/config.py`.**
 4. **Use full import paths:** `from backend.rag.retrieval import ...`.
 5. **Run from the project root.**
-=======
-1. **One job per file.** Do not mix API, retrieval, persistence, and generation.
-2. **No work at import time.** Do not connect to Pinecone, open SQLite, or
-   download models when a file is imported.
-3. **Settings go in `backend/core/config.py`.**
-4. **Use full import paths:** `from backend.rag.retrieval import ...`.
-5. **Run from the project root.**
-6. **Open the database in the lifespan.** `backend/main.py` owns the
-   checkpointer and app DB startup.
->>>>>>> fix/RAG
 
 ## Add a new API route
 
@@ -52,24 +69,6 @@ app.include_router(stats_router)
 2. Register it with `builder.add_node(...)`.
 3. Connect it with `builder.add_edge(...)`.
 4. Update `MedicalState` in `backend/rag/state.py` if it needs new fields.
-<<<<<<< HEAD
-=======
-5. Remember that `messages` is append-only through `add_messages`. Return a
-   new `AIMessage`; do not replace the list.
-
-The graph is compiled by `create_graph(checkpointer=...)` in the FastAPI
-lifespan. Do not create a module-level compiled graph.
-
-## Add a thread field
-
-1. Add the column in `backend/memory/db.py`.
-2. Update the CRUD functions in `backend/memory/conversations.py`.
-3. Add or extend the models in `backend/api/schemas.py`.
-4. Update `backend/api/routes/threads.py` and the Streamlit sidebar.
-
-Thread metadata lives in `data/app.sqlite`. Message history lives in the
-LangGraph checkpoint, not in the metadata table.
->>>>>>> fix/RAG
 
 ## Add a setting
 
@@ -88,10 +87,6 @@ MY_SETTING = os.getenv("MY_SETTING", "default")
 | --- | --- |
 | `backend/api/` | Routes and schemas |
 | `backend/core/` | Config and shared clients |
-<<<<<<< HEAD
-=======
-| `backend/memory/` | SQLite setup and conversation metadata |
->>>>>>> fix/RAG
 | `backend/rag/` | Retrieval, generation, graph |
 | `backend/ingestion/` | Offline indexing |
 | `scripts/` | One-off commands |
@@ -106,16 +101,4 @@ python -m scripts.smoke_test_llm
 python -m test.vector_db_test
 ```
 
-<<<<<<< HEAD
-=======
-Also check the thread API against a running backend:
-
-```bash
-curl http://127.0.0.1:8000/threads
-```
-
-Restart the backend and confirm the list and message history are still
-there.
-
->>>>>>> fix/RAG
 See [testing.md](testing.md) for details.
