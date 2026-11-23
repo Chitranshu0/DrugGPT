@@ -1,72 +1,103 @@
 # DrugGPT
 
-DrugGPT is a source-grounded assistant for **medical science and drug-study research**. It automatically searches locally indexed medical PDFs, prefers source-grounded answers when relevant evidence is found, and falls back to general educational information otherwise. It displays the supporting source and page for every grounded answer.
+**Local-first, source-grounded medical education RAG app.** DrugGPT searches a local index of licensed medical PDFs, answers with page citations when evidence is found, and clearly labels general educational answers otherwise.
 
-It is designed for students and researchers. It is not a diagnostic, prescribing, or emergency-care service.
+> **Not a clinical tool.** Built for students and researchers. It does not diagnose, prescribe, or handle emergencies.
+
+**Stack:** Python 3.11+ · FastAPI · LangGraph · ChromaDB · SQLite · Next.js · Pytest · Ruff · DeepEval
 
 ## What it does
 
-- FastAPI backend with typed JSON chat responses
+- FastAPI backend with typed JSON chat responses and an SSE streaming endpoint
 - Next.js frontend (Vercel-ready) with patient chat and a drug-professional review console
-- Local ChromaDB vector index for licensed medical PDFs
-- LangGraph state graph that routes each message: triage → context → RAG answer / clarification / emergency / clinician review
-- Deterministic safety guardrails; RAG is invoked only for educational questions
-- Human-in-the-loop for personal decisions about medicines, tests, treatments, and test reports
-- Educational-only scope — not a diagnostic, prescribing, or emergency-care service
-- Pytest and Ruff configuration for repeatable development
-- Two apps: FastAPI backend (`uvicorn src.main:app`) and the Next.js frontend in `Frontend/`
+- Local ChromaDB index over licensed medical PDFs; every grounded answer shows source and page
+- LangGraph state graph routes each message: triage → context → answer / clarification / emergency / clinician review
+- Deterministic safety guardrails; personal clinical decisions pause for a human clinician
+- Educational-only scope — no diagnosis, prescribing, or emergency care
 
 ## Architecture
 
-`Next.js UI → FastAPI → LangGraph triage → context → (RAG answer | clarification | emergency/scope | clinician review) → ChatResponse`
+```mermaid
+flowchart LR
+    U[User] --> FE[Next.js UI<br/>patient chat + review console]
+    FE --> API[FastAPI<br/>validate + typed response]
+    API --> G[LangGraph<br/>conversation graph]
+    G <--> DB[(SQLite<br/>patients, chats, reviews)]
+    G <--> V[(Chroma<br/>PDF index)]
+    G -. phrasing only .-> LLM[OpenRouter]
+    G --> R[ChatResponse]
+```
 
-LangGraph owns the conversation flow; FastAPI owns the HTTP boundary. RAG (`search_medical_sources` → ChromaDB) is invoked only on the educational/symptom path. Personal clinical decisions pause for a human clinician before any guidance is shown. See [the architecture doc](docs/architecture.md) for the full flow diagram.
+- **LangGraph** owns the conversation; **FastAPI** owns the HTTP boundary.
+- **OpenRouter** only phrases responses — it never decides what the app is allowed to do.
+- RAG runs only on the educational/symptom path; all other paths use dedicated nodes.
 
-The project code lives in `src` (imported as `src.*`); local PDFs, the Chroma index, and chat checkpoints live under the untracked `data/` directory.
+Full flow, triage routes, and review sequence: [architecture doc](docs/architecture.md). Code lives in `src/` (imported as `src.*`); runtime data lives in untracked `data/`.
+
+## Engineering highlights
+
+- **State graph:** `triage → load_context → answer | clarify | emergency | scope | clinician_review`
+- **Deterministic triage:** regex guardrails run first; emergency always wins; clarifications are fixed and reviewed (no LLM call by default)
+- **Human-in-the-loop:** `interrupt()` pauses personal decisions; the review row is saved first and resumed with `Command(resume=...)` on a separate thread so later turns never block
+- **Cosine v2 index:** normalized embeddings, `hnsw:space=cosine`, `schema_version=2`; score = `clamp(1 - cosine_distance, 0, 1)`; cached embedder/client/store with `invalidate_caches()` on rebuild
+- **Memory:** one checkpoint thread per conversation (`conversation:{id}`) restores earlier turns from SQLite
+- **Streaming:** `/messages/stream` emits SSE tokens then the same stored `ChatResponse`
+- **Citations:** repo-relative source paths and one-based page numbers — no absolute local paths
 
 ## Quick start
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
+.\.venv\Scripts\Activate.ps1   # Windows
+# source .venv/bin/activate    # macOS/Linux
 pip install -e '.[dev]'
-cp .env.example .env
-mkdir -p data/raw
-# Copy only licensed medical PDFs into data/raw/
+cp .env.example .env            # set OPENROUTER_API_KEY
+mkdir -p data/raw               # add licensed medical PDFs here
 
 # Terminal 1: FastAPI backend (:8000)
 uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
-# Terminal 2: Next.js frontend (:3000) — see Frontend/README.md
-cd Frontend
-npm install
-npm run dev
+# Terminal 2: Next.js frontend (:3000)
+cd Frontend && npm install && npm run dev
 ```
 
-### Individual commands
+- No `python main.py` — run uvicorn directly. Interactive API docs at `/docs`.
+- Frontend uses mock data until `NEXT_PUBLIC_API_BASE_URL` is set in `Frontend/.env.local`.
+- Upgrades: rebuild once with `POST /vector-db/rebuild`; old L2 indexes have no citations.
 
-| Command | What it does |
-|---------|--------------|
-| `uvicorn src.main:app --reload` | FastAPI backend only (:8000) |
-| `cd Frontend && npm run dev` | Next.js frontend only (:3000) |
+Full configuration: [setup doc](docs/setup.md) and `.env.example`.
 
-There is no `python main.py` or `python app.py`; run uvicorn directly.
+## Testing & evaluation
 
-**Upgrading an existing checkout:** rebuild the index once with `POST /vector-db/rebuild`. The index now uses cosine similarity, normalized embeddings and relative citation paths; older L2 indexes are detected as needing a rebuild and will not produce citations until recreated.
+```bash
+pytest
+ruff check .
+deepeval test run tests/evals/test_druggpt.py
+```
 
-Chat answers can also be streamed through `POST /conversations/{id}/messages/stream` (server-sent events); guardrails and clinician review are unchanged.
+- Tests are offline: fake retrievers, an in-memory store, and an LLM stub — no API key, network, or PDFs needed.
+- DeepEval uses fixed safety goldens plus RAG metrics (relevancy, faithfulness, no-diagnosis, trajectory).
+- `OPENROUTER_FALLBACK_API_KEY` is a fallback only; the primary key is never overwritten.
+- When a metric fails, fix the app — never the metric, threshold, or golden.
 
-## Safety and limitations
+Details: [development doc](docs/development.md).
 
-DrugGPT answers medical science and drug-study questions only. It declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent-care situations. If no indexed source sufficiently supports a question, it provides general educational information rather than inventing an answer. Verify research conclusions against the original materials and qualified professionals.
+## Safety & scope
+
+- Declines unrelated questions, patient-specific diagnosis/dosing/treatment requests, and urgent care.
+- No source above threshold → general education (HTTP 200), never an invented answer.
+- Local-only: no authentication, bound to `127.0.0.1` by default. Never enter real patient data.
+
+See [safety and scope](docs/safety-and-scope.md).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Setup and configuration](docs/setup.md)
-- [API reference](docs/api.md)
-- [RAG and source-data workflow](docs/rag-and-data.md)
-- [Safety and scope](docs/safety-and-scope.md)
-- [Development guide](docs/development.md)
-- [Architecture decision records](docs/adr/0001-local-chroma-source-grounded-rag.md)
+- [Architecture](docs/architecture.md) — system, message flow, clinician-review gate
+- [Setup](docs/setup.md) — installation and configuration
+- [API](docs/api.md) — endpoints and response modes
+- [RAG and data](docs/rag-and-data.md) — indexing and retrieval
+- [Safety and scope](docs/safety-and-scope.md) — guardrails and limits
+- [Development](docs/development.md) — tests, lint, DeepEval loop
+- [ADR 0001](docs/adr/0001-local-chroma-source-grounded-rag.md) — why local ChromaDB
+
+Agent context: [`docs/AGENTS.md`](docs/AGENTS.md) · [`docs/SKILLS.md`](docs/SKILLS.md).
