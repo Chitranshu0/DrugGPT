@@ -26,6 +26,70 @@ flowchart LR
     G <--> V[(Chroma<br/>PDF index)]
     G -. phrasing only .-> LLM[OpenRouter]
     G --> R[ChatResponse]
+│   │       └── health.py        # GET /health, /healthz
+│   ├── core/
+│   │   ├── config.py            # All environment settings
+│   │   └── embeddings.py        # Shared HuggingFace embedding model
+│   ├── rag/
+│   │   ├── state.py             # State shared between graph nodes
+│   │   ├── retrieval.py         # Search Pinecone
+│   │   ├── generation.py        # Context + LLM answer
+│   │   └── graph.py             # LangGraph workflow
+│   └── ingestion/
+│       └── vector_db.py         # PDF -> Pinecone
+│
+├── frontend/
+│   └── streamlit_app.py         # Streamlit chat UI
+│
+├── scripts/
+│   ├── ingest.py                # Run the PDF -> Pinecone ingestion
+│   └── smoke_test_llm.py        # Quick LLM connection check
+│
+├── test/
+│   └── vector_db_test.py        # Quick Pinecone retrieval check
+│
+├── docs/                        # Project docs (start at docs/README.md)
+├── requirements.txt
+├── .env.example
+├── README.md
+└── .gitignore
+```
+
+### How the pieces fit together
+
+```
+Streamlit UI
+    |
+    v
+FastAPI /chat  (backend/api/routes/chat.py)
+    |
+    v
+LangGraph workflow  (backend/rag/graph.py)
+    |
+    v
+RAG step  (backend/rag/generation.py)
+    |------------------|
+    v                  v
+Pinecone search    Groq LLM
+(backend/rag/retrieval.py)
+```
+
+---
+
+## Documentation
+
+Start at [`docs/README.md`](docs/README.md).
+
+---
+
+## Setup
+
+Clone the repository:
+
+```bash
+git clone https://github.com/your-username/DrugGPT.git
+
+cd DrugGPT
 ```
 
 - **LangGraph** owns the conversation; **FastAPI** owns the HTTP boundary.
@@ -66,6 +130,19 @@ cd Frontend && npm install && npm run dev
 - Upgrades: rebuild once with `POST /vector-db/rebuild`; old L2 indexes have no citations.
 
 Full configuration: [setup doc](docs/setup.md) and `.env.example`.
+## Index the Medical Books (first time only)
+
+Put your PDF files in the `Medical Books/` folder, then run:
+
+```bash
+python -m scripts.ingest
+```
+
+## Run the Backend
+
+```bash
+uvicorn backend.main:app --reload
+```
 
 ## Testing & evaluation
 
